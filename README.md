@@ -12,7 +12,7 @@
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone [https://github.com/Emanloe/da-pizda-bot.git](https://github.com/Emanloe/da-pizda-bot.git)
+   git clone [https://github.com/Emanloe/da-pizda-bot](https://github.com/Emanloe/da-pizda-bot)
    cd da-pizda-bot
    ```
 
