@@ -1,14 +1,23 @@
 import json
 import re
 import random
-import difflib
 import logging
 from datetime import datetime
 from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import GIF_FILE_ID, BIRTHDAY_GIF_ID, LET_DO_STICKER_IDS
-from database import save_or_update_user, save_custom_birthdate, get_user_birthdate_from_db
+from database import (
+    save_or_update_user,
+    save_custom_birthdate,
+    get_user_birthdate_from_db,
+    mark_pizda_candidate_used,
+)
+from handlers.past_pizda import match_yes_no, remember_pizda_candidate
+
+_LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do_phrases.json"
+with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
+    LET_DO_PHRASES = tuple(json.load(_phrases_file))
 
 _LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do_phrases.json"
 with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
@@ -86,24 +95,17 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_to_message_id=update.message.message_id,
         )
 
+    yes_no = match_yes_no(text_raw)
+    if yes_no == "да":
+        remember_pizda_candidate(chat_id, update.message.message_id, update.message.date)
+
     # Ответы "Да/Нет" и троллинг Amigo
     response_chance = 0.09
     if last_responded is None or random.random() < response_chance:
-        text = text_raw.lower()
-        keyword_list = ["да", "нет", "da", "net"]
-        max_ratio = 0
-        max_keyword = ""
-
-        for keyword in keyword_list:
-            if keyword != "давг":
-                ratio = difflib.SequenceMatcher(None, keyword, text).ratio()
-                if ratio > max_ratio and ratio >= 0.6:
-                    max_ratio = ratio
-                    max_keyword = keyword
-
-        if max_keyword in ["да", "da"] and "давг" not in text:
+        if yes_no == "да":
             await update.message.reply_text("Пизда", reply_to_message_id=update.message.message_id)
-        elif max_keyword in ["нет", "net"] and "давг" not in text:
+            mark_pizda_candidate_used(chat_id, update.message.message_id)
+        elif yes_no == "нет":
             await update.message.reply_text("Пидора ответ", reply_to_message_id=update.message.message_id)
 
         user_first_name = (update.message.from_user.first_name or "").lower()

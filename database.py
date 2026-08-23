@@ -22,6 +22,21 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN birthdate TEXT")
     except sqlite3.OperationalError:
         pass
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS pizda_candidates (
+        chat_id INTEGER,
+        message_id INTEGER,
+        created_at INTEGER,
+        used INTEGER DEFAULT 0,
+        PRIMARY KEY (chat_id, message_id)
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS bot_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )
+    """)
     conn.commit()
     conn.close()
 
@@ -101,3 +116,90 @@ def get_all_chats():
     chats = cursor.fetchall()
     conn.close()
     return chats
+
+def save_pizda_candidate(chat_id: int, message_id: int, created_at: int, used: int = 0):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR IGNORE INTO pizda_candidates (chat_id, message_id, created_at, used)
+        VALUES (?, ?, ?, ?)
+    """, (chat_id, message_id, created_at, used))
+    inserted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return inserted
+
+def mark_pizda_candidate_used(chat_id: int, message_id: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE pizda_candidates SET used = 1 WHERE chat_id = ? AND message_id = ?",
+        (chat_id, message_id),
+    )
+    conn.commit()
+    conn.close()
+
+def get_pizda_candidate_chats(before_ts: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT chat_id
+        FROM pizda_candidates
+        WHERE used = 0 AND created_at < ?
+    """, (before_ts,))
+    chats = cursor.fetchall()
+    conn.close()
+    return chats
+
+def get_all_pizda_candidates():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT chat_id, message_id, created_at, used FROM pizda_candidates"
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "created_at": created_at,
+            "used": used,
+        }
+        for chat_id, message_id, created_at, used in rows
+    ]
+
+def pick_pizda_candidates(chat_id: int, before_ts: int, limit: int):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT message_id
+        FROM pizda_candidates
+        WHERE chat_id = ? AND used = 0 AND created_at < ?
+        ORDER BY RANDOM()
+        LIMIT ?
+    """, (chat_id, before_ts, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [message_id for (message_id,) in rows]
+
+def get_bot_meta(key: str):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM bot_meta WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+def set_bot_meta(key: str, value):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    if value is None:
+        cursor.execute("DELETE FROM bot_meta WHERE key = ?", (key,))
+    else:
+        cursor.execute("""
+            INSERT INTO bot_meta (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """, (key, value))
+    conn.commit()
+    conn.close()

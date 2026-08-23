@@ -5,6 +5,9 @@
 *.db
 bot_database.db
 
+# Экспорт истории чата
+data/result.json
+
 # Python кэш
 __pycache__/
 *.py[cod]
