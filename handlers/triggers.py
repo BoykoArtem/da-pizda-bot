@@ -1,12 +1,18 @@
+import json
 import re
 import random
 import difflib
 import logging
 from datetime import datetime
+from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import GIF_FILE_ID, BIRTHDAY_GIF_ID
+from config import GIF_FILE_ID, BIRTHDAY_GIF_ID, LET_DO_STICKER_IDS
 from database import save_or_update_user, save_custom_birthdate, get_user_birthdate_from_db
+
+_LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do_phrases.json"
+with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
+    LET_DO_PHRASES = tuple(json.load(_phrases_file))
 
 async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
@@ -73,6 +79,12 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_animation(animation=BIRTHDAY_GIF_ID, caption=text)
             else:
                 await update.message.reply_text(text)
+
+    if any(phrase in text_raw.lower() for phrase in LET_DO_PHRASES) and random.random() < 0.05:
+        await update.message.reply_sticker(
+            sticker=random.choice(LET_DO_STICKER_IDS),
+            reply_to_message_id=update.message.message_id,
+        )
 
     # Ответы "Да/Нет" и троллинг Amigo
     response_chance = 0.09
