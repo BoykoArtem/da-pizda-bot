@@ -1,7 +1,7 @@
 import requests
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import GIF_FILE_ID
+from config import GIF_FILE_ID, RUSSIA_GIF_FILE_ID
 
 # Сопоставление кодов погоды Open-Meteo с эмодзи и описанием
 WEATHER_CODES = {
@@ -31,10 +31,16 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Если город не указан, дефолтный — Санкт-Петербург
     city = " ".join(context.args) if context.args else "Санкт-Петербург"
+    city_normalized = city.strip().lower()
 
     # Пасхалка на Орёл
-    if city.strip().lower() in ["орел", "орёл"]:
+    if city_normalized in ["орел", "орёл"]:
         await update.message.reply_animation(animation=GIF_FILE_ID)
+        return
+
+    # Пасхалка на Россию
+    if city_normalized == "россия":
+        await update.message.reply_animation(animation=RUSSIA_GIF_FILE_ID)
         return
 
     try:
