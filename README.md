@@ -9,6 +9,34 @@ Telegram-бот с модульной архитектурой.
 * Команда `/top` для вывода статистики
 * Команда `/force_pidor` для принудительного выбора пидора дня
 * Команда `/Weather` для вывода погоды в желаемом городе
+* Отложенные ответы «Пизда» на старые сообщения «да» (джоба раз в 2–7 дней, 10:00–22:00 МСК)
+
+## Отложенные «Пизда» (past_pizda)
+
+Пул сообщений лежит в таблице `pizda_candidates`. Живые «да» бот дописывает сам. Стартовый пул заливается скриптом.
+
+**Залить пул на проде из seed** (после `python handlers/past_pizda.py --export-seed` у себя):
+
+```bash
+# файл data/pizda_candidates_seed.json должен лежать рядом с кодом
+python handlers/past_pizda.py
+```
+
+В Docker:
+
+```bash
+docker cp data/pizda_candidates_seed.json da-pizda-bot:/app/data/
+docker exec -w /app da-pizda-bot python handlers/past_pizda.py
+```
+
+**Залить из полного экспорта Telegram** (`data/result.json`, в git не коммитить):
+
+```bash
+python handlers/past_pizda.py --from-export
+```
+
+Скрипт пишет в тот же `bot_database.db`, с которым крутится бот. Дубли игнорируются. После деплоя кода перезапусти бота — джоба сама поставит ближайший слот.
+
 ## Установка и запуск
 
 1. Клонируйте репозиторий:

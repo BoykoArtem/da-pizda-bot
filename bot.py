@@ -14,6 +14,7 @@ from config import BOT_TOKEN, GAME_HOUR, GAME_MINUTE
 from database import init_db
 from handlers.commands import start_command, top_command, force_pidor_command
 from handlers.game import daily_beauty_job
+from handlers.past_pizda import schedule_past_pizda_job
 from handlers.triggers import respond_trigger
 from handlers.utils import get_file_id_handler, error_handler
 from handlers.weather import weather_command
@@ -35,6 +36,7 @@ def main():
     
     if application.job_queue:
         application.job_queue.run_daily(daily_beauty_job, time=target_time)
+        schedule_past_pizda_job(application.job_queue)
 
     # Регистрация команд
     application.add_handler(CommandHandler("start", start_command))
