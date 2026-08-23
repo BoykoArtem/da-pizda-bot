@@ -15,7 +15,7 @@ from database import init_db
 from handlers.commands import start_command, top_command, force_pidor_command
 from handlers.game import daily_beauty_job
 from handlers.triggers import respond_trigger
-from handlers.utils import get_gif_id_handler, error_handler
+from handlers.utils import get_file_id_handler, error_handler
 from handlers.weather import weather_command
 
 nest_asyncio.apply()
@@ -42,9 +42,9 @@ def main():
     application.add_handler(CommandHandler("force_pidor", force_pidor_command))
     application.add_handler(CommandHandler("weather", weather_command))
     
-    # Служебные хендлеры и текстовые триггеры
-    media_filter = (filters.ANIMATION | filters.VIDEO | filters.Document.ALL) & filters.ChatType.PRIVATE
-    application.add_handler(MessageHandler(media_filter, get_gif_id_handler))
+    # Служебные хендлеры и текстовые триггеры (добавлен filters.PHOTO)
+    media_filter = (filters.PHOTO | filters.ANIMATION | filters.VIDEO | filters.Document.ALL) & filters.ChatType.PRIVATE
+    application.add_handler(MessageHandler(media_filter, get_file_id_handler))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, respond_trigger))
 
     # Логгер ошибок
