@@ -1,9 +1,9 @@
+import random
 import requests
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import GIF_FILE_ID, RUSSIA_GIF_FILE_ID
+from config import GIF_FILE_ID, RUSSIA_GIF_FILE_ID, PERM_PHOTO_IDS
 
-# Сопоставление кодов погоды Open-Meteo с эмодзи и описанием
 WEATHER_CODES = {
     0: ("☀️", "Ясно"),
     1: ("🌤️", "Преимущественно ясно"),
@@ -29,7 +29,6 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
-    # Если город не указан, дефолтный — Санкт-Петербург
     city = " ".join(context.args) if context.args else "Санкт-Петербург"
     city_normalized = city.strip().lower()
 
@@ -57,7 +56,7 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         city_name = location.get("name", city)
         country = location.get("country", "")
 
-        # 2. Запрос текущих погодных данных
+        # 2. Запрос погодных данных (ветер в м/с)
         weather_url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={lat}&longitude={lon}&current_weather=true&"
@@ -82,6 +81,11 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         await update.message.reply_text(message, parse_mode="HTML")
+
+        # Дополнительная пасхалка на Пермь: отправка рандомного фото
+        if city_normalized == "пермь" and PERM_PHOTO_IDS:
+            random_photo_id = random.choice(PERM_PHOTO_IDS)
+            await update.message.reply_photo(photo=random_photo_id)
 
     except Exception:
         await update.message.reply_text("⚠️ Не удалось получить данные о погоде.")
