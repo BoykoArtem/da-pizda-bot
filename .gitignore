@@ -1,0 +1,14 @@
+# Секреты и конфиги
+.env
+
+# База данных
+*.db
+bot_database.db
+
+# Python кэш
+__pycache__/
+*.py[cod]
+
+# Окружение
+venv/
+.venv/
