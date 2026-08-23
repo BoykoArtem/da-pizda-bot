@@ -74,16 +74,6 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text(text)
 
-    # Лимит на "Пизда"
-    current_week = now.isocalendar()[1]
-    if context.bot_data.get("pizda_week") != current_week:
-        context.bot_data["pizda_week"] = current_week
-        context.bot_data["pizda_count"] = 0
-
-    if context.bot_data.get("pizda_count", 0) < 10 and random.random() < 0.05:
-        context.bot_data["pizda_count"] = context.bot_data.get("pizda_count", 0) + 1
-        await update.message.reply_text("Пизда", reply_to_message_id=update.message.message_id)
-
     # Ответы "Да/Нет" и троллинг Amigo
     response_chance = 0.09
     if last_responded is None or random.random() < response_chance:
