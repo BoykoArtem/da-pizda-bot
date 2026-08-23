@@ -16,6 +16,7 @@ from handlers.commands import start_command, top_command, force_pidor_command
 from handlers.game import daily_beauty_job
 from handlers.triggers import respond_trigger
 from handlers.utils import get_gif_id_handler, error_handler
+from handlers.weather import weather_command
 
 nest_asyncio.apply()
 
@@ -39,6 +40,7 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("top", top_command))
     application.add_handler(CommandHandler("force_pidor", force_pidor_command))
+    application.add_handler(CommandHandler("weather", weather_command))
     
     # Служебные хендлеры и текстовые триггеры
     media_filter = (filters.ANIMATION | filters.VIDEO | filters.Document.ALL) & filters.ChatType.PRIVATE
