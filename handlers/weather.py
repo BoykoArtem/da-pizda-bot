@@ -61,7 +61,8 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         weather_url = (
             f"https://api.open-meteo.com/v1/forecast?"
             f"latitude={lat}&longitude={lon}&current_weather=true&"
-            f"hourly=relativehumidity_2m,apparent_temperature&timezone=auto"
+            f"hourly=relativehumidity_2m,apparent_temperature&"
+            f"windspeed_unit=ms&timezone=auto"
         )
         w_res = requests.get(weather_url, timeout=5).json()
         current = w_res.get("current_weather", {})
@@ -77,7 +78,7 @@ async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<b>Погода в {city_name}</b> {country}\n\n"
             f"{emoji} <b>{desc}</b>\n"
             f"🌡️ Температура: <b>{temp}°C</b> (ощущается как {apparent}°C)\n"
-            f"💨 Ветер: <b>{wind_speed} км/ч</b>\n"
+            f"💨 Ветер: <b>{wind_speed} м/с</b>\n"
         )
 
         await update.message.reply_text(message, parse_mode="HTML")
