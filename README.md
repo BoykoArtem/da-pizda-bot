@@ -41,7 +41,7 @@ python handlers/past_pizda.py --from-export
 
 1. Клонируйте репозиторий:
    ```bash
-   git clone [https://github.com/Emanloe/da-pizda-bot](https://github.com/Emanloe/da-pizda-bot)
+   git clone https://github.com/Emanloe/da-pizda-bot.git
    cd da-pizda-bot
    ```
 

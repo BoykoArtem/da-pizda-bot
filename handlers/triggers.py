@@ -19,6 +19,10 @@ _LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do
 with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
     LET_DO_PHRASES = tuple(json.load(_phrases_file))
 
+_LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do_phrases.json"
+with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
+    LET_DO_PHRASES = tuple(json.load(_phrases_file))
+
 async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
