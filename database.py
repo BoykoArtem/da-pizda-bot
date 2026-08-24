@@ -129,6 +129,10 @@ def _reset_user_if_new_day(cursor, row):
 def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
     """Получает или создает пользователя дуэлей с проверкой сброса дня."""
     cursor = conn.cursor()
+    display_name = tg_user.first_name or "Гном"
+    username = tg_user.username
+
+    # 1. Сначала ищем напрямую по user_id
     cursor.execute("""
         SELECT user_id, username, display_name, points, wins, losses,
                stolen_dicks_count, dick_stolen_count, dick_stolen_today,
@@ -137,9 +141,27 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
     """, (tg_user.id,))
     row = cursor.fetchone()
 
-    display_name = tg_user.first_name or "Гном"
-    username = tg_user.username
+    # 2. Если по user_id не нашли, ищем по username (вдруг ранее вызывали как молчуна)
+    if not row and username:
+        cursor.execute("""
+            SELECT user_id, username, display_name, points, wins, losses,
+                   stolen_dicks_count, dick_stolen_count, dick_stolen_today,
+                   last_activity_date, last_stolen_by
+            FROM duel_users WHERE LOWER(username) = LOWER(?)
+        """, (username.lstrip("@"),))
+        row = cursor.fetchone()
 
+        # Если нашли временную запись — обновляем её real_id
+        if row:
+            temp_user_id = row[0]
+            cursor.execute("""
+                UPDATE duel_users 
+                SET user_id = ?, username = ?, display_name = ? 
+                WHERE user_id = ?
+            """, (tg_user.id, username, display_name, temp_user_id))
+            row = (tg_user.id, username, display_name) + row[3:]
+
+    # 3. Если профиля всё ещё нет — создаём новый
     if not row:
         today_str = _get_today_date_str()
         cursor.execute("""
@@ -173,7 +195,7 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
 
 
 def get_duel_user_by_username(username: str) -> dict | None:
-    """Поиск дуэлянта по нику (без знака @)."""
+    """Поиск дуэлянта по нику (без знака @). Регистронезависимый поиск."""
     clean_username = username.lstrip("@")
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -196,7 +218,7 @@ def get_duel_user_by_username(username: str) -> dict | None:
 
 
 def get_or_create_duel_user_by_username(username: str, user_id: int = None) -> dict:
-    """Получает или создает профиль игрока по username, если его еще нет в БД (для вызовов молчунов)."""
+    """Получает или создает профиль игрока по username, если его еще нет в БД."""
     clean_username = username.lstrip("@")
     existing = get_duel_user_by_username(clean_username)
     if existing:
