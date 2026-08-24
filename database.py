@@ -61,11 +61,18 @@ def init_db():
             points INTEGER DEFAULT 20,
             wins INTEGER DEFAULT 0,
             losses INTEGER DEFAULT 0,
+            stolen_dicks_count INTEGER DEFAULT 0,
             dick_stolen_count INTEGER DEFAULT 0,
             dick_stolen_today INTEGER DEFAULT 0,
             last_activity_date TEXT
         )
     """)
+
+    # Миграция: добавляем новую колонку stolen_dicks_count, если БД создана ранее
+    try:
+        cursor.execute("ALTER TABLE duel_users ADD COLUMN stolen_dicks_count INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -83,7 +90,7 @@ def _reset_user_if_new_day(cursor, row):
     today_str = _get_today_date_str()
     (
         user_id, username, display_name, points, wins, losses,
-        dick_stolen_count, dick_stolen_today, last_activity_date
+        stolen_dicks_count, dick_stolen_count, dick_stolen_today, last_activity_date
     ) = row
 
     if last_activity_date != today_str:
@@ -103,6 +110,7 @@ def _reset_user_if_new_day(cursor, row):
         "points": points,
         "wins": wins,
         "losses": losses,
+        "stolen_dicks_count": stolen_dicks_count,
         "dick_stolen_count": dick_stolen_count,
         "dick_stolen_today": bool(dick_stolen_today),
         "last_activity_date": last_activity_date
@@ -112,7 +120,7 @@ def _reset_user_if_new_day(cursor, row):
 def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
     """Получает или создает пользователя дуэлей с проверкой сброса дня."""
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM duel_users WHERE user_id = ?", (tg_user.id,))
+    cursor.execute("SELECT user_id, username, display_name, points, wins, losses, stolen_dicks_count, dick_stolen_count, dick_stolen_today, last_activity_date FROM duel_users WHERE user_id = ?", (tg_user.id,))
     row = cursor.fetchone()
 
     display_name = tg_user.first_name or "Гном"
@@ -121,8 +129,8 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
     if not row:
         today_str = _get_today_date_str()
         cursor.execute("""
-            INSERT INTO duel_users (user_id, username, display_name, points, wins, losses, dick_stolen_count, dick_stolen_today, last_activity_date)
-            VALUES (?, ?, ?, 20, 0, 0, 0, 0, ?)
+            INSERT INTO duel_users (user_id, username, display_name, points, wins, losses, stolen_dicks_count, dick_stolen_count, dick_stolen_today, last_activity_date)
+            VALUES (?, ?, ?, 20, 0, 0, 0, 0, 0, ?)
         """, (tg_user.id, username, display_name, today_str))
         conn.commit()
         return {
@@ -132,6 +140,7 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
             "points": 20,
             "wins": 0,
             "losses": 0,
+            "stolen_dicks_count": 0,
             "dick_stolen_count": 0,
             "dick_stolen_today": False,
             "last_activity_date": today_str
@@ -153,7 +162,7 @@ def get_duel_user_by_username(username: str) -> dict | None:
     clean_username = username.lstrip("@")
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM duel_users WHERE LOWER(username) = LOWER(?)", (clean_username,))
+    cursor.execute("SELECT user_id, username, display_name, points, wins, losses, stolen_dicks_count, dick_stolen_count, dick_stolen_today, last_activity_date FROM duel_users WHERE LOWER(username) = LOWER(?)", (clean_username,))
     row = cursor.fetchone()
 
     if not row:
@@ -166,6 +175,42 @@ def get_duel_user_by_username(username: str) -> dict | None:
     return res
 
 
+def get_or_create_duel_user_by_username(username: str, user_id: int = None) -> dict:
+    """Получает или создает профиль игрока по username, если его еще нет в БД (для вызовов молчунов)."""
+    clean_username = username.lstrip("@")
+    existing = get_duel_user_by_username(clean_username)
+    if existing:
+        return existing
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    today_str = _get_today_date_str()
+    
+    # Если user_id не передан, временно генерируем случайный уникальный ID
+    assigned_user_id = user_id or random.randint(1000000000, 9999999999)
+    
+    cursor.execute("""
+        INSERT INTO duel_users (user_id, username, display_name, points, wins, losses, stolen_dicks_count, dick_stolen_count, dick_stolen_today, last_activity_date)
+        VALUES (?, ?, ?, 20, 0, 0, 0, 0, 0, ?)
+    """, (assigned_user_id, clean_username, clean_username, today_str))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "user_id": assigned_user_id,
+        "username": clean_username,
+        "display_name": clean_username,
+        "points": 20,
+        "wins": 0,
+        "losses": 0,
+        "stolen_dicks_count": 0,
+        "dick_stolen_count": 0,
+        "dick_stolen_today": False,
+        "last_activity_date": today_str
+    }
+
+
 def execute_duel_transaction(chat_id: int, winner_user: dict, loser_user: dict, is_dick_stolen: bool):
     """Атомарная транзакция проведения дуэли."""
     conn = sqlite3.connect(DB_NAME)
@@ -175,21 +220,26 @@ def execute_duel_transaction(chat_id: int, winner_user: dict, loser_user: dict, 
         winner_points = min(100, winner_user["points"] + 10)
         loser_points = max(0, loser_user["points"] - 5)
 
-        # Обновление победителя
-        cursor.execute("""
-            UPDATE duel_users
-            SET points = ?, wins = wins + 1
-            WHERE user_id = ?
-        """, (winner_points, winner_user["user_id"]))
-
-        # Обновление проигравшего
+        # Обновление победителя и проигравшего
         if is_dick_stolen:
+            cursor.execute("""
+                UPDATE duel_users
+                SET points = ?, wins = wins + 1, stolen_dicks_count = stolen_dicks_count + 1
+                WHERE user_id = ?
+            """, (winner_points, winner_user["user_id"]))
+
             cursor.execute("""
                 UPDATE duel_users
                 SET points = ?, losses = losses + 1, dick_stolen_count = dick_stolen_count + 1, dick_stolen_today = 1
                 WHERE user_id = ?
             """, (loser_points, loser_user["user_id"]))
         else:
+            cursor.execute("""
+                UPDATE duel_users
+                SET points = ?, wins = wins + 1
+                WHERE user_id = ?
+            """, (winner_points, winner_user["user_id"]))
+
             cursor.execute("""
                 UPDATE duel_users
                 SET points = ?, losses = losses + 1

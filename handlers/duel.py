@@ -1,10 +1,13 @@
 import random
+import sqlite3
 from telegram import Update
 from telegram.ext import ContextTypes
 from config import DICK_STEAL_CHANCE, TOP_SORT_BY
 from database import (
-    get_or_create_duel_user, 
-    get_duel_user_by_username, 
+    DB_NAME,
+    get_or_create_duel_user,
+    get_duel_user_by_username,
+    get_or_create_duel_user_by_username,
     execute_duel_transaction,
     get_duel_top
 )
@@ -29,10 +32,6 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 1. Загрузка и проверка инициатора
-    # Передаем None в качестве conn, так как get_or_create_duel_user сама управляет соединением
-    import sqlite3
-    from database import DB_NAME
-    
     conn = sqlite3.connect(DB_NAME)
     try:
         initiator = get_or_create_duel_user(conn, initiator_tg)
@@ -47,11 +46,8 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚔️ У вас 0 очков. Вы больше не можете драться сегодня.")
         return
 
-    # 2. Загрузка и проверка противника
-    opponent = get_duel_user_by_username(target_username)
-    if not opponent:
-        await update.message.reply_text(f"❌ Игрок @{target_username} не найден или ещё ни разу не играл.")
-        return
+    # 2. Загрузка и проверка противника (если нет в базе — создаём на лету)
+    opponent = get_or_create_duel_user_by_username(target_username)
 
     if opponent["dick_stolen_today"]:
         await update.message.reply_text(f"💀 @{opponent['username'] or opponent['display_name']} сегодня уже без хуя. До завтра драться нельзя.")
@@ -118,9 +114,6 @@ async def duel_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(f"❌ Пользователь @{target_username} не найден в статистике дуэлей.")
             return
     else:
-        import sqlite3
-        from database import DB_NAME
-        
         conn = sqlite3.connect(DB_NAME)
         try:
             user_data = get_or_create_duel_user(conn, update.message.from_user)
@@ -136,7 +129,8 @@ async def duel_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"Очки сегодня: <b>{user_data['points']} / 100</b>\n\n"
         f"Победы: <b>{user_data['wins']}</b>\n"
         f"Поражения: <b>{user_data['losses']}</b>\n\n"
-        f"Хуй украли: <b>{user_data['dick_stolen_count']} раз</b>"
+        f"💄 Украл хуев: <b>{user_data.get('stolen_dicks_count', 0)}</b>\n"
+        f"💄 Хуй украли: <b>{user_data['dick_stolen_count']} раз</b>"
     )
     await update.message.reply_text(text, parse_mode="HTML")
 
