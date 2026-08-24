@@ -19,8 +19,13 @@ from handlers.triggers import respond_trigger
 from handlers.utils import get_file_id_handler, error_handler
 from handlers.weather import weather_command
 
-# Импорт хендлеров дуэлей
-from handlers.duel import duel_command, duel_stats_command, duel_top_command
+# Импорт хендлеров дуэлей (добавлен duel_delete_command)
+from handlers.duel import (
+    duel_command,
+    duel_stats_command,
+    duel_top_command,
+    duel_delete_command,
+)
 
 nest_asyncio.apply()
 
@@ -53,6 +58,7 @@ def main():
     application.add_handler(CommandHandler("duel_stats", duel_stats_command))
     application.add_handler(CommandHandler("stats", duel_stats_command))
     application.add_handler(CommandHandler("duel_top", duel_top_command))
+    application.add_handler(CommandHandler("duel_delete", duel_delete_command))
 
     # Служебные хендлеры и текстовые триггеры
     media_filter = (filters.PHOTO | filters.ANIMATION | filters.VIDEO | filters.Document.ALL) & filters.ChatType.PRIVATE

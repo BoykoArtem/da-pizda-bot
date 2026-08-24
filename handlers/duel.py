@@ -2,15 +2,65 @@ import random
 import sqlite3
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import DICK_STEAL_CHANCE, TOP_SORT_BY
+from config import DICK_STEAL_CHANCE, TOP_SORT_BY, ADMIN_ID
 from database import (
     DB_NAME,
     get_or_create_duel_user,
     get_duel_user_by_username,
     get_or_create_duel_user_by_username,
+    delete_duel_user_by_username,
     execute_duel_transaction,
     get_duel_top
 )
+
+AUTO_DELETE_DELAY = 60  # Удаление сообщений через 60 секунд
+
+
+async def delete_messages_job(context: ContextTypes.DEFAULT_TYPE):
+    """Задача для JobQueue: удаляет исходное сообщение и ответ бота."""
+    job_data = context.job.data
+    chat_id = job_data.get("chat_id")
+    message_ids = job_data.get("message_ids", [])
+
+    for msg_id in message_ids:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass  # Сообщение могло быть уже удалено вручную
+
+
+def schedule_auto_delete(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_ids: list[int]):
+    """Вспомогательная функция для постановки удаления в очередь."""
+    if context.job_queue:
+        context.job_queue.run_once(
+            delete_messages_job,
+            when=AUTO_DELETE_DELAY,
+            data={"chat_id": chat_id, "message_ids": message_ids}
+        )
+
+
+def _extract_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
+    """Универсальное извлечение юзернейма из аргументов или текста сообщения."""
+    if context.args:
+        return context.args[0].strip().lstrip("@")
+    
+    msg_text = update.message.text or ""
+    parts = msg_text.split()
+    if len(parts) > 1:
+        return parts[1].strip().lstrip("@")
+    
+    return None
+
+
+async def send_and_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, parse_mode: str = "HTML"):
+    """Отправляет ответ и планирует автоудаление и команды, и ответа."""
+    bot_msg = await update.message.reply_text(text, parse_mode=parse_mode)
+    schedule_auto_delete(
+        context, 
+        chat_id=update.message.chat_id, 
+        message_ids=[update.message.message_id, bot_msg.message_id]
+    )
+
 
 async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /duel @username"""
@@ -18,17 +68,15 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     initiator_tg = update.message.from_user
+    target_username = _extract_username(update, context)
 
-    if not context.args:
-        await update.message.reply_text("🗡️ Укажите соперника: <code>/duel @username</code>", parse_mode="HTML")
+    if not target_username:
+        await send_and_schedule(update, context, "🗡️ Укажите соперника: <code>/duel @username</code>")
         return
-
-    target_raw = context.args[0].strip()
-    target_username = target_raw.lstrip("@")
 
     # Проверка вызова самого себя
     if initiator_tg.username and initiator_tg.username.lower() == target_username.lower():
-        await update.message.reply_text("⚔️ Нельзя вызвать на дуэль самого себя!")
+        await send_and_schedule(update, context, "⚔️ Нельзя вызвать на дуэль самого себя!")
         return
 
     # 1. Загрузка и проверка инициатора
@@ -39,22 +87,22 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
 
     if initiator["dick_stolen_today"]:
-        await update.message.reply_text(f"💀 @{initiator['username'] or initiator['display_name']} сегодня уже без хуя. До завтра драться нельзя.")
+        await send_and_schedule(update, context, f"💀 @{initiator['username'] or initiator['display_name']} сегодня уже без хуя. До завтра драться нельзя.")
         return
 
     if initiator["points"] <= 0:
-        await update.message.reply_text("⚔️ У вас 0 очков. Вы больше не можете драться сегодня.")
+        await send_and_schedule(update, context, "⚔️ У вас 0 очков. Вы больше не можете драться сегодня.")
         return
 
     # 2. Загрузка и проверка противника (если нет в базе — создаём на лету)
     opponent = get_or_create_duel_user_by_username(target_username)
 
     if opponent["dick_stolen_today"]:
-        await update.message.reply_text(f"💀 @{opponent['username'] or opponent['display_name']} сегодня уже без хуя. До завтра драться нельзя.")
+        await send_and_schedule(update, context, f"💀 @{opponent['username'] or opponent['display_name']} сегодня уже без хуя. До завтра драться нельзя.")
         return
 
     if opponent["points"] <= 0:
-        await update.message.reply_text(f"⚔️ @{opponent['username'] or opponent['display_name']} больше не может драться сегодня — у него 0 очков.")
+        await send_and_schedule(update, context, f"⚔️ @{opponent['username'] or opponent['display_name']} больше не может драться сегодня — у него 0 очков.")
         return
 
     # 3. Расчёт шансов на основе очков
@@ -81,7 +129,7 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_dick_stolen=is_dick_stolen
         )
     except Exception:
-        await update.message.reply_text("⚠️ Ошибка проведения дуэли. Попробуйте снова.")
+        await send_and_schedule(update, context, "⚠️ Ошибка проведения дуэли. Попробуйте снова.")
         return
 
     # 5. Формирование ответа
@@ -99,7 +147,7 @@ async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_dick_stolen:
         res_msg += f"\n💀 <b>И ВДОБАВОК У НЕГО УКРАЛИ ХУЙ.</b>\nСегодня {lose_name} больше не может драться."
 
-    await update.message.reply_text(res_msg, parse_mode="HTML")
+    await send_and_schedule(update, context, res_msg)
 
 
 async def duel_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,11 +155,12 @@ async def duel_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not update.message or not update.message.from_user:
         return
 
-    if context.args:
-        target_username = context.args[0].lstrip("@")
+    target_username = _extract_username(update, context)
+
+    if target_username:
         user_data = get_duel_user_by_username(target_username)
         if not user_data:
-            await update.message.reply_text(f"❌ Пользователь @{target_username} не найден в статистике дуэлей.")
+            await send_and_schedule(update, context, f"❌ Пользователь @{target_username} не найден в статистике дуэлей.")
             return
     else:
         conn = sqlite3.connect(DB_NAME)
@@ -121,7 +170,14 @@ async def duel_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             conn.close()
 
     name = f"@{user_data['username']}" if user_data['username'] else user_data['display_name']
-    stolen_status = "\n⚠️ <i>(Сегодня хуй украден)</i>" if user_data['dick_stolen_today'] else ""
+    
+    stolen_status = ""
+    if user_data['dick_stolen_today']:
+        thief = user_data.get('last_stolen_by')
+        if thief:
+            stolen_status = f"\n⚠️ <i>(Сегодня хуй украл {thief})</i>"
+        else:
+            stolen_status = "\n⚠️ <i>(Сегодня хуй украден)</i>"
 
     text = (
         f"🗡️ <b>Гномья дуэль на ножах</b>\n\n"
@@ -132,14 +188,17 @@ async def duel_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         f"💄 Украл хуев: <b>{user_data.get('stolen_dicks_count', 0)}</b>\n"
         f"💄 Хуй украли: <b>{user_data['dick_stolen_count']} раз</b>"
     )
-    await update.message.reply_text(text, parse_mode="HTML")
+    await send_and_schedule(update, context, text)
 
 
 async def duel_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /duel_top"""
+    if not update.message:
+        return
+
     top_list = get_duel_top(sort_by=TOP_SORT_BY, limit=10)
     if not top_list:
-        await update.message.reply_text("🏆 Список лидеров дуэлей пока пуст.")
+        await send_and_schedule(update, context, "🏆 Список лидеров дуэлей пока пуст.")
         return
 
     text = "🏆 <b>Гномья дуэль на ножах — топ игроков</b>\n\n"
@@ -148,4 +207,28 @@ async def duel_top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name = f"@{username}" if username else display_name
         text += f"{idx}. <b>{name}</b> — {wins} побед ({losses} пораж., {points} очков)\n"
 
-    await update.message.reply_text(text, parse_mode="HTML")
+    await send_and_schedule(update, context, text)
+
+
+async def duel_delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /duel_delete @username (доступно только админу бота)."""
+    if not update.message or not update.message.from_user:
+        return
+
+    user_id = update.message.from_user.id
+    if user_id != ADMIN_ID:
+        await send_and_schedule(update, context, "⛔ Эта команда доступна только администратору бота.")
+        return
+
+    target_username = _extract_username(update, context)
+
+    if not target_username:
+        await send_and_schedule(update, context, "🗑️ Укажите ник: <code>/duel_delete @username</code>")
+        return
+
+    deleted = delete_duel_user_by_username(target_username)
+
+    if deleted:
+        await send_and_schedule(update, context, f"✅ Пользователь @{target_username} успешно удалён из дуэльной базы.")
+    else:
+        await send_and_schedule(update, context, f"❌ Пользователь @{target_username} не найден в БД.")
