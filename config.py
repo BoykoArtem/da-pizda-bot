@@ -26,3 +26,13 @@ PERM_PHOTO_IDS = [
 # Время запуска авто-игры (МСК)
 GAME_HOUR = 18
 GAME_MINUTE = 0
+
+# --- Настройки Гномьей дуэли ---
+DAILY_START_POINTS = 20
+MAX_DAILY_POINTS = 100
+WIN_POINTS = 10
+LOSS_POINTS = 5
+DICK_STEAL_CHANCE = 0.20  # 20%
+DUEL_WIN_CHANCE = 0.50    # 50%
+DUEL_TIMEZONE = "Europe/Moscow"
+TOP_SORT_BY = "wins"      # "wins" | "net_wins" | "points"
