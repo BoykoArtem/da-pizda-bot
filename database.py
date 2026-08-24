@@ -17,7 +17,6 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # Исходные таблицы
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER,
@@ -52,7 +51,6 @@ def init_db():
         )
     """)
 
-    # Таблица для гномьих дуэлей
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS duel_users (
             user_id INTEGER PRIMARY KEY,
@@ -69,7 +67,6 @@ def init_db():
         )
     """)
 
-    # Миграции для прошлых версий БД
     try:
         cursor.execute("ALTER TABLE duel_users ADD COLUMN stolen_dicks_count INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
@@ -85,8 +82,15 @@ def init_db():
 
 
 # ==========================================
-# 🗡️ ЛОГИКА ДУЭЛЕЙ (ГНОМЬЯ ДУЭЛЬ НА НОЖАХ)
+# 🗡️ ЛОГИКА ДУЭЛЕЙ
 # ==========================================
+
+def _clean_name(name: str | None) -> str:
+    """Удаляет символ @ из имени для предотвращения пушей и тегов."""
+    if not name:
+        return "Гном"
+    return name.lstrip("@")
+
 
 def _reset_user_if_new_day(cursor, row):
     """Сбрасывает дневные лимиты/очки, если наступил новый день."""
@@ -113,8 +117,8 @@ def _reset_user_if_new_day(cursor, row):
 
     return {
         "user_id": user_id,
-        "username": username,
-        "display_name": display_name,
+        "username": _clean_name(username),
+        "display_name": _clean_name(display_name),
         "points": points,
         "wins": wins,
         "losses": losses,
@@ -122,17 +126,16 @@ def _reset_user_if_new_day(cursor, row):
         "dick_stolen_count": dick_stolen_count,
         "dick_stolen_today": bool(dick_stolen_today),
         "last_activity_date": last_activity_date,
-        "last_stolen_by": last_stolen_by
+        "last_stolen_by": _clean_name(last_stolen_by) if last_stolen_by else None
     }
 
 
 def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
-    """Получает или создает пользователя дуэлей с проверкой сброса дня."""
+    """Получает или создает пользователя дуэлей."""
     cursor = conn.cursor()
-    display_name = tg_user.first_name or "Гном"
-    username = tg_user.username
+    display_name = _clean_name(tg_user.first_name)
+    username = _clean_name(tg_user.username)
 
-    # 1. Сначала ищем напрямую по user_id
     cursor.execute("""
         SELECT user_id, username, display_name, points, wins, losses,
                stolen_dicks_count, dick_stolen_count, dick_stolen_today,
@@ -141,17 +144,15 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
     """, (tg_user.id,))
     row = cursor.fetchone()
 
-    # 2. Если по user_id не нашли, ищем по username (вдруг ранее вызывали как молчуна)
     if not row and username:
         cursor.execute("""
             SELECT user_id, username, display_name, points, wins, losses,
                    stolen_dicks_count, dick_stolen_count, dick_stolen_today,
                    last_activity_date, last_stolen_by
             FROM duel_users WHERE LOWER(username) = LOWER(?)
-        """, (username.lstrip("@"),))
+        """, (username,))
         row = cursor.fetchone()
 
-        # Если нашли временную запись — обновляем её real_id
         if row:
             temp_user_id = row[0]
             cursor.execute("""
@@ -161,7 +162,6 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
             """, (tg_user.id, username, display_name, temp_user_id))
             row = (tg_user.id, username, display_name) + row[3:]
 
-    # 3. Если профиля всё ещё нет — создаём новый
     if not row:
         today_str = _get_today_date_str()
         cursor.execute("""
@@ -183,7 +183,6 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
             "last_stolen_by": None
         }
 
-    # Если ник изменился в ТГ — обновляем в БД
     if row[1] != username or row[2] != display_name:
         cursor.execute("""
             UPDATE duel_users SET username = ?, display_name = ? WHERE user_id = ?
@@ -195,8 +194,8 @@ def get_or_create_duel_user(conn: sqlite3.Connection, tg_user) -> dict:
 
 
 def get_duel_user_by_username(username: str) -> dict | None:
-    """Поиск дуэлянта по нику (без знака @). Регистронезависимый поиск."""
-    clean_username = username.lstrip("@")
+    """Поиск дуэлянта по нику без знака @."""
+    clean_username = _clean_name(username)
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -218,8 +217,8 @@ def get_duel_user_by_username(username: str) -> dict | None:
 
 
 def get_or_create_duel_user_by_username(username: str, user_id: int = None) -> dict:
-    """Получает или создает профиль игрока по username, если его еще нет в БД."""
-    clean_username = username.lstrip("@")
+    """Получает или создает профиль игрока по username."""
+    clean_username = _clean_name(username)
     existing = get_duel_user_by_username(clean_username)
     if existing:
         return existing
@@ -227,17 +226,16 @@ def get_or_create_duel_user_by_username(username: str, user_id: int = None) -> d
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     today_str = _get_today_date_str()
-    
     assigned_user_id = user_id or random.randint(1000000000, 9999999999)
-    
+
     cursor.execute("""
         INSERT INTO duel_users (user_id, username, display_name, points, wins, losses, stolen_dicks_count, dick_stolen_count, dick_stolen_today, last_activity_date, last_stolen_by)
         VALUES (?, ?, ?, 20, 0, 0, 0, 0, 0, ?, NULL)
     """, (assigned_user_id, clean_username, clean_username, today_str))
-    
+
     conn.commit()
     conn.close()
-    
+
     return {
         "user_id": assigned_user_id,
         "username": clean_username,
@@ -254,8 +252,8 @@ def get_or_create_duel_user_by_username(username: str, user_id: int = None) -> d
 
 
 def delete_duel_user_by_username(username: str) -> bool:
-    """Удаляет дуэлянта из таблицы по его username."""
-    clean_username = username.lstrip("@")
+    """Удаляет дуэлянта из таблицы по username."""
+    clean_username = _clean_name(username)
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM duel_users WHERE LOWER(username) = LOWER(?)", (clean_username,))
@@ -273,7 +271,7 @@ def execute_duel_transaction(chat_id: int, winner_user: dict, loser_user: dict, 
         winner_points = min(100, winner_user["points"] + 10)
         loser_points = max(0, loser_user["points"] - 5)
 
-        winner_name = f"@{winner_user['username']}" if winner_user.get('username') else winner_user.get('display_name', 'Кто-то')
+        winner_name = _clean_name(winner_user.get('username') or winner_user.get('display_name', 'Кто-то'))
 
         if is_dick_stolen:
             cursor.execute("""
@@ -337,14 +335,14 @@ def save_or_update_user(user, chat_id: int):
         return
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    username = f"@{user.username}" if user.username else user.first_name
+    clean_username = _clean_name(user.username or user.first_name)
     cursor.execute("""
         INSERT INTO users (user_id, chat_id, username, first_name, beauty_count, is_bot)
         VALUES (?, ?, ?, ?, 0, 0)
         ON CONFLICT(user_id, chat_id) DO UPDATE SET
             username = excluded.username,
             first_name = excluded.first_name
-    """, (user.id, chat_id, username, user.first_name))
+    """, (user.id, chat_id, clean_username, user.first_name))
     conn.commit()
     conn.close()
 
@@ -352,12 +350,12 @@ def save_or_update_user(user, chat_id: int):
 def save_custom_birthdate(chat_id: int, username: str, bday_str: str) -> bool:
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    formatted_username = username if username.startswith("@") else f"@{username}"
+    clean_username = _clean_name(username)
     cursor.execute("""
         UPDATE users 
         SET birthdate = ? 
         WHERE chat_id = ? AND LOWER(username) = LOWER(?)
-    """, (bday_str, chat_id, formatted_username))
+    """, (bday_str, chat_id, clean_username))
     updated = cursor.rowcount > 0
     conn.commit()
     conn.close()
@@ -374,6 +372,7 @@ def get_user_birthdate_from_db(user_id: int, chat_id: int):
 
 
 def pick_beauty_of_the_day(chat_id: int):
+    """Единственное место, где используется кликабельный тег @username для анонса победы."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, username, beauty_count FROM users WHERE chat_id = ? AND is_bot = 0", (chat_id,))
@@ -388,10 +387,14 @@ def pick_beauty_of_the_day(chat_id: int):
     cursor.execute("UPDATE users SET beauty_count = ? WHERE user_id = ? AND chat_id = ?", (new_count, user_id, chat_id))
     conn.commit()
     conn.close()
-    return username, new_count
+
+    raw_username = _clean_name(username)
+    formatted_winner = f"@{raw_username}" if raw_username else "Кто-то"
+    return formatted_winner, new_count
 
 
 def get_top_beauties(chat_id: int, limit: int = 3):
+    """Топ пидоров дня без тегов и без знака @."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -403,7 +406,7 @@ def get_top_beauties(chat_id: int, limit: int = 3):
     """, (chat_id, limit))
     top_users = cursor.fetchall()
     conn.close()
-    return top_users
+    return [(_clean_name(u), c) for u, c in top_users]
 
 
 def get_all_chats():
