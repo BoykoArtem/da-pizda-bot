@@ -12,7 +12,16 @@ from telegram.ext import (
 
 from config import BOT_TOKEN, GAME_HOUR, GAME_MINUTE, DUEL_TIMEZONE
 from database import init_db
-from handlers.commands import start_command, top_command, force_pidor_command
+
+# Импорт основных команд
+from handlers.commands import (
+    start_command,
+    top_command,
+    force_pidor_command,
+    set_bday_command,
+    toggle_forward_reply_command,
+    toggle_autodelete_command,
+)
 from handlers.game import daily_beauty_job
 from handlers.past_pizda import schedule_past_pizda_job
 from handlers.triggers import respond_trigger
@@ -47,22 +56,31 @@ def main():
         application.job_queue.run_daily(daily_beauty_job, time=target_time)
         schedule_past_pizda_job(application.job_queue)
 
-    # Регистрация стандартных команд
+    # Регистрация основных команд
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("top", top_command))
     application.add_handler(CommandHandler("force_pidor", force_pidor_command))
+    application.add_handler(CommandHandler("setbday", set_bday_command))
+    application.add_handler(CommandHandler("toggle_forward", toggle_forward_reply_command))
+    application.add_handler(CommandHandler("toggle_autodelete", toggle_autodelete_command))
     application.add_handler(CommandHandler("weather", weather_command))
 
-    # Регистрация команд дуэлей (убран лишний синоним /stats)
+    # Регистрация команд дуэлей
     application.add_handler(CommandHandler("duel", duel_command))
     application.add_handler(CommandHandler("duel_stats", duel_stats_command))
     application.add_handler(CommandHandler("duel_top", duel_top_command))
     application.add_handler(CommandHandler("duel_delete", duel_delete_command))
 
     # Служебные хендлеры и текстовые триггеры
-    media_filter = (filters.PHOTO | filters.ANIMATION | filters.VIDEO | filters.Document.ALL) & filters.ChatType.PRIVATE
+    media_filter = (
+        filters.PHOTO | filters.ANIMATION | filters.VIDEO | filters.Document.ALL
+    ) & filters.ChatType.PRIVATE
     application.add_handler(MessageHandler(media_filter, get_file_id_handler))
-    application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, respond_trigger))
+
+    # Текстовые триггеры (отсекаем команды и сервисные сообщения)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, respond_trigger)
+    )
 
     # Логгер ошибок
     application.add_error_handler(error_handler)

@@ -12,6 +12,7 @@ from database import (
     save_custom_birthdate,
     get_user_birthdate_from_db,
     mark_pizda_candidate_used,
+    is_forward_reply_enabled,
 )
 from handlers.past_pizda import match_yes_no, remember_pizda_candidate
 
@@ -19,9 +20,6 @@ _LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do
 with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
     LET_DO_PHRASES = tuple(json.load(_phrases_file))
 
-_LET_DO_PHRASES_PATH = Path(__file__).resolve().parent.parent / "data" / "let_do_phrases.json"
-with open(_LET_DO_PHRASES_PATH, encoding="utf-8") as _phrases_file:
-    LET_DO_PHRASES = tuple(json.load(_phrases_file))
 
 async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
@@ -53,9 +51,13 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
     last_responded = context.user_data.get(user_id)
 
-    # Реакция на пересланные сообщения
-    if update.message.forward_origin is not None and random.random() < 0.3:
-        await update.message.reply_text("Форварднул тебе за щеку, проверяй", reply_to_message_id=update.message.message_id)
+    # Реакция на пересланные сообщения (проверяем тумблер из БД)
+    if update.message.forward_origin is not None and is_forward_reply_enabled(chat_id):
+        if random.random() < 0.3:
+            await update.message.reply_text(
+                "Форварднул тебе за щеку, проверяй",
+                reply_to_message_id=update.message.message_id
+            )
 
     # Дни рождения
     is_bday_today = False
@@ -89,11 +91,13 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await update.message.reply_text(text)
 
+    # Реакция на фразы let_do
     if any(phrase in text_raw.lower() for phrase in LET_DO_PHRASES) and random.random() < 0.05:
-        await update.message.reply_sticker(
-            sticker=random.choice(LET_DO_STICKER_IDS),
-            reply_to_message_id=update.message.message_id,
-        )
+        if LET_DO_STICKER_IDS:
+            await update.message.reply_sticker(
+                sticker=random.choice(LET_DO_STICKER_IDS),
+                reply_to_message_id=update.message.message_id,
+            )
 
     yes_no = match_yes_no(text_raw)
     if yes_no == "да":
@@ -111,8 +115,14 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_first_name = (update.message.from_user.first_name or "").lower()
         if user_first_name == "amigo":
             if random.random() < 0.3:
-                await update.message.reply_text("Может быть ты покинешь чат?", reply_to_message_id=update.message.message_id)
-            if random.random() < 0.3:
-                await update.message.reply_animation(animation=GIF_FILE_ID, reply_to_message_id=update.message.message_id)
+                await update.message.reply_text(
+                    "Может быть ты покинешь чат?",
+                    reply_to_message_id=update.message.message_id
+                )
+            if random.random() < 0.3 and GIF_FILE_ID:
+                await update.message.reply_animation(
+                    animation=GIF_FILE_ID,
+                    reply_to_message_id=update.message.message_id
+                )
 
         context.user_data[user_id] = now

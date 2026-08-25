@@ -52,6 +52,14 @@ def init_db():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_settings (
+            chat_id INTEGER PRIMARY KEY,
+            forward_reply_enabled INTEGER DEFAULT 1,
+            auto_delete_enabled INTEGER DEFAULT 1
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS duel_users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
@@ -77,6 +85,56 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    conn.commit()
+    conn.close()
+
+
+# ==========================================
+# ⚙️ НАСТРОЙКИ ЧАТОВ
+# ==========================================
+
+def is_forward_reply_enabled(chat_id: int) -> bool:
+    """Проверяет, включен ли ответ 'Форвардни себе за щеку'."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT forward_reply_enabled FROM chat_settings WHERE chat_id = ?", (chat_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return bool(row[0]) if row and row[0] is not None else True
+
+
+def set_forward_reply_enabled(chat_id: int, enabled: bool):
+    """Включает или выключает ответ на форварды."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO chat_settings (chat_id, forward_reply_enabled)
+        VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET forward_reply_enabled = excluded.forward_reply_enabled
+    """, (chat_id, 1 if enabled else 0))
+    conn.commit()
+    conn.close()
+
+
+def is_auto_delete_enabled(chat_id: int) -> bool:
+    """Проверяет, включено ли автоудаление команд."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT auto_delete_enabled FROM chat_settings WHERE chat_id = ?", (chat_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return bool(row[0]) if row and row[0] is not None else True
+
+
+def set_auto_delete_enabled(chat_id: int, enabled: bool):
+    """Включает или выключает автоудаление команд."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO chat_settings (chat_id, auto_delete_enabled)
+        VALUES (?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET auto_delete_enabled = excluded.auto_delete_enabled
+    """, (chat_id, 1 if enabled else 0))
     conn.commit()
     conn.close()
 
