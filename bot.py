@@ -7,6 +7,7 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 
@@ -31,6 +32,7 @@ from handlers.weather import weather_command
 # Импорт хендлеров дуэлей
 from handlers.duel import (
     duel_command,
+    duel_select_callback,
     duel_stats_command,
     duel_top_command,
     duel_delete_command,
@@ -65,8 +67,9 @@ def main():
     application.add_handler(CommandHandler("toggle_autodelete", toggle_autodelete_command))
     application.add_handler(CommandHandler("weather", weather_command))
 
-    # Регистрация команд дуэлей
+    # Регистрация команд и кнопок дуэлей
     application.add_handler(CommandHandler("duel", duel_command))
+    application.add_handler(CallbackQueryHandler(duel_select_callback, pattern="^start_duel_"))
     application.add_handler(CommandHandler("duel_stats", duel_stats_command))
     application.add_handler(CommandHandler("duel_top", duel_top_command))
     application.add_handler(CommandHandler("duel_delete", duel_delete_command))

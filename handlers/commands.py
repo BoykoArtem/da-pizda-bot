@@ -53,29 +53,36 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = "🏆 <b>Топ пидоров чата:</b>\n\n"
     for idx, (username, count) in enumerate(top_list, 1):
-        text += f"{idx}. <b>{username}</b> — {count} раз(а)\n"
+        clean_username = username.lstrip("@") if username else "Аноним"
+        text += f"{idx}. <b>{clean_username}</b> — {count} раз(а)\n"
 
     await reply_or_send(update, context, text, parse_mode="HTML")
 
 
 async def force_pidor_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ручной запуск выбора пидора дня"""
-    if not update.message:
+    if not update.message or not update.message.from_user:
+        return
+
+    schedule_auto_delete(context, update.message)
+    if not is_admin(update.message.from_user.id):
+        await reply_or_send(
+            update, context, "⛔ Эта команда доступна только администраторам."
+        )
         return
 
     chat_id = update.message.chat_id
-    schedule_auto_delete(context, update.message)
-
     result = pick_beauty_of_the_day(chat_id)
     if not result:
         await reply_or_send(update, context, "Нет кандидатов для проведения игры.")
         return
 
     winner_tag, count = result
+    clean_tag = winner_tag.lstrip("@") if winner_tag else "Аноним"
     await reply_or_send(
         update,
         context,
-        f"Пидор дня — {winner_tag}! Он был пидором уже {count} раз(а).",
+        f"Пидор дня — {clean_tag}! Он был пидором уже {count} раз(а).",
     )
 
 
@@ -87,7 +94,7 @@ async def set_bday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     schedule_auto_delete(context, update.message)
     if not is_admin(update.message.from_user.id):
         await reply_or_send(
-            update, context, "Эта команда доступна только администраторам."
+            update, context, "⛔ Эта команда доступна только администраторам."
         )
         return
 
@@ -101,7 +108,7 @@ async def set_bday_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    username = args[0]
+    username = args[0].lstrip("@")
     bday_str = args[1]
 
     updated = save_custom_birthdate(update.message.chat_id, username, bday_str)
@@ -127,6 +134,14 @@ async def toggle_forward_reply_command(
         return
 
     schedule_auto_delete(context, update.message)
+
+    # ПРОВЕРКА НА АДМИНА
+    if not is_admin(update.message.from_user.id):
+        await reply_or_send(
+            update, context, "⛔ Эта команда доступна только администраторам."
+        )
+        return
+
     chat_id = update.message.chat_id
     current_state = is_forward_reply_enabled(chat_id)
     new_state = not current_state
@@ -138,11 +153,24 @@ async def toggle_forward_reply_command(
     )
 
 
+# Алиас для поддержания совместимости, если где-то зарегистрировано короткое название
+toggle_forward_command = toggle_forward_reply_command
+
+
 async def toggle_autodelete_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ):
     """Переключение автоудаления команд бота"""
     if not update.message or not update.message.from_user:
+        return
+
+    schedule_auto_delete(context, update.message)
+
+    # ПРОВЕРКА НА АДМИНА
+    if not is_admin(update.message.from_user.id):
+        await reply_or_send(
+            update, context, "⛔ Эта команда доступна только администраторам."
+        )
         return
 
     chat_id = update.message.chat_id
