@@ -111,7 +111,7 @@ def _fetch_weather_html(city: str) -> str | None:
 
     location = geo_res["results"][0]
     lat, lon = location["latitude"], location["longitude"]
-    city_name = location.get("name", geo_name)
+        city_name = location.get("name", geo_name)
     country = location.get("country", "")
 
     # 2. Запрос погодных данных (ветер в м/с)
