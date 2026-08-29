@@ -4,9 +4,12 @@ import requests
 from telegram import (
     Update,
     InlineQueryResultArticle,
-    InlineQueryResultCachedMpeg4Gif,
     InlineQueryResultCachedPhoto,
     InputTextMessageContent,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    InputMediaAnimation,
 )
 from telegram.ext import ContextTypes
 from config import (
@@ -16,6 +19,7 @@ from config import (
     MOSCOW_PHOTO_IDS,
     SPB_PHOTO_IDS,
     NSK_PHOTO_IDS,
+    WEATHER_STUB_PHOTO_ID,
 )
 
 WEATHER_CODES = {
@@ -148,6 +152,85 @@ def _inline_id() -> str:
     return uuid.uuid4().hex
 
 
+_ATTACH_STORE = "weather_attach"
+
+
+def _stub_keyboard(result_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("\u2060", callback_data="wx" + result_id[:16])]]
+    )
+
+
+def _store_attach(
+    context: ContextTypes.DEFAULT_TYPE,
+    result_id: str,
+    kind: str,
+    file_id: str,
+    caption: str,
+) -> None:
+    pending = context.bot_data.setdefault(_ATTACH_STORE, {})
+    pending[result_id] = (kind, file_id, caption)
+    extra = len(pending) - 200
+    if extra > 0:
+        for key in list(pending)[:extra]:
+            pending.pop(key, None)
+
+
+def _pop_attach(context: ContextTypes.DEFAULT_TYPE, result_id: str | None, short_id: str | None):
+    pending = context.bot_data.get(_ATTACH_STORE) or {}
+    if result_id and result_id in pending:
+        return pending.pop(result_id)
+    if short_id:
+        for key in list(pending):
+            if key.startswith(short_id):
+                return pending.pop(key)
+    return None
+
+
+async def _replace_stub_media(context: ContextTypes.DEFAULT_TYPE, inline_message_id: str, attach) -> None:
+    kind, file_id, caption = attach
+    if kind == "photo":
+        media = InputMediaPhoto(media=file_id, caption=caption, parse_mode="HTML")
+    else:
+        media = InputMediaAnimation(media=file_id, caption=caption, parse_mode="HTML")
+    await context.bot.edit_message_media(
+        inline_message_id=inline_message_id,
+        media=media,
+        reply_markup=None,
+    )
+
+
+async def weather_chosen_inline_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """После отправки заглушки подменяет её на пасхалку. Нужен /setinlinefeedback."""
+    chosen = update.chosen_inline_result
+    if not chosen or not chosen.inline_message_id:
+        return
+    attach = _pop_attach(context, chosen.result_id, None)
+    if not attach:
+        return
+    try:
+        await _replace_stub_media(context, chosen.inline_message_id, attach)
+    except Exception:
+        pass
+
+
+async def weather_stub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Запасной путь, если фидбек не пришёл, а кнопку на заглушке нажали."""
+    query = update.callback_query
+    if not query or not query.data or not query.data.startswith("wx"):
+        return
+    await query.answer()
+    if not query.inline_message_id:
+        return
+    attach = _pop_attach(context, None, query.data[2:])
+    if not attach:
+        return
+    try:
+        await _replace_stub_media(context, query.inline_message_id, attach)
+    except Exception:
+        pass
+
+
 async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Инлайн: город пишется в поле ввода после @бота, в чат уходит только выбранный результат."""
     inline_query = update.inline_query
@@ -164,20 +247,9 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
         fetched = _fetch_weather_html(city)
         text, api_city_name = fetched if fetched else (None, "")
         gif_id = _bonus_gif(city, api_city_name)
-        if gif_id:
-            gif_kwargs = {
-                "id": _inline_id(),
-                "mpeg4_file_id": gif_id,
-                "title": f"Погода: {city}",
-            }
-            if text:
-                gif_kwargs["caption"] = text
-                gif_kwargs["parse_mode"] = "HTML"
-            result = InlineQueryResultCachedMpeg4Gif(**gif_kwargs)
-            await inline_query.answer([result], cache_time=30, is_personal=True)
-            return
+        photo_id = None if gif_id else _bonus_photo(city, api_city_name)
 
-        if fetched is None:
+        if fetched is None and not gif_id:
             await inline_query.answer(
                 [
                     InlineQueryResultArticle(
@@ -193,24 +265,35 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        photo_id = _bonus_photo(city, api_city_name)
-        if photo_id:
+        display_name = api_city_name or city
+        if not text:
+            text = f"<b>Погода в {display_name}</b>"
+
+        result_id = _inline_id()
+        easter_kind = None
+        easter_id = None
+        if gif_id:
+            easter_kind, easter_id = "gif", gif_id
+        elif photo_id:
+            easter_kind, easter_id = "photo", photo_id
+
+        if easter_kind and WEATHER_STUB_PHOTO_ID:
+            _store_attach(context, result_id, easter_kind, easter_id, text)
             result = InlineQueryResultCachedPhoto(
-                id=_inline_id(),
-                photo_file_id=photo_id,
-                title=f"Погода: {city}",
-                description="Отправить прогноз",
+                id=result_id,
+                photo_file_id=WEATHER_STUB_PHOTO_ID,
+                title=f"Погода в {display_name}",
                 caption=text,
                 parse_mode="HTML",
+                reply_markup=_stub_keyboard(result_id),
             )
         else:
             result = InlineQueryResultArticle(
-                id=_inline_id(),
-                title=f"Погода: {city}",
-                description="Отправить прогноз",
+                id=result_id,
+                title=f"Погода в {display_name}",
                 input_message_content=InputTextMessageContent(text, parse_mode="HTML"),
             )
-        await inline_query.answer([result], cache_time=30, is_personal=True)
+        await inline_query.answer([result], cache_time=1, is_personal=True)
 
     except Exception:
         await inline_query.answer(

@@ -19,6 +19,7 @@ from telegram.ext import (
     MessageHandler,  # обычный текст и медиа
     CallbackQueryHandler,  # нажатия inline-кнопок
     InlineQueryHandler,  # инлайн: набор текста в поле ввода без отправки команды
+    ChosenInlineResultHandler,  # пользователь выбрал инлайн-результат
     filters,  # отбор апдейтов: текст, фото, тип чата и т.д.
 )
 
@@ -39,7 +40,11 @@ from handlers.game import daily_beauty_job  # ежедневный пидор д
 from handlers.past_pizda import schedule_past_pizda_job  # отложенные «пизда» на старые «да»
 from handlers.triggers import respond_trigger  # реакции на обычный текст в чате
 from handlers.utils import get_file_id_handler, error_handler  # file_id в личке и лог ошибок
-from handlers.weather import weather_inline_query  # погода: инлайн @бот город
+from handlers.weather import (
+    weather_inline_query,
+    weather_chosen_inline_result,
+    weather_stub_callback,
+)
 
 # Гномья дуэль: бой, выбор соперника, интерактивные ходы, статы, топ, удаление игрока
 from handlers.duel import (
@@ -105,8 +110,10 @@ def main():
     application.add_handler(CommandHandler("toggle_forward", toggle_forward_reply_command))
     application.add_handler(CommandHandler("toggle_autodelete", toggle_autodelete_command))
 
-    # Инлайн-погода: город набирается в поле ввода после @бота
+    # Инлайн-погода: заглушка в выборе, пасхалка подменяется после отправки
     application.add_handler(InlineQueryHandler(weather_inline_query))
+    application.add_handler(ChosenInlineResultHandler(weather_chosen_inline_result))
+    application.add_handler(CallbackQueryHandler(weather_stub_callback, pattern="^wx"))
 
     # Дуэли: команда, вызовы, кнопки атак/блоков, статы и админ-удаление
     application.add_handler(CommandHandler("duel", duel_command))
