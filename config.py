@@ -22,6 +22,7 @@ MOSCOW_PHOTO_IDS = _weather_content["moscow_photo_ids"]
 SPB_PHOTO_IDS = _weather_content["spb_photo_ids"]
 NSK_PHOTO_IDS = _weather_content["nsk_photo_ids"]
 PERM_PHOTO_IDS = _weather_content["perm_photo_ids"]
+WEATHER_STUB_PHOTO_ID = _weather_content.get("stub_photo_file_id") or ""
 
 _LET_DO_CONTENT_PATH = Path(__file__).resolve().parent / "data" / "let_do_content.json"
 with open(_LET_DO_CONTENT_PATH, encoding="utf-8") as _let_do_file:
