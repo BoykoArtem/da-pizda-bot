@@ -41,10 +41,11 @@ from handlers.triggers import respond_trigger  # реакции на обычн�
 from handlers.utils import get_file_id_handler, error_handler  # file_id в личке и лог ошибок
 from handlers.weather import weather_command, weather_inline_query  # погода: /weather и инлайн @бот город
 
-# Гномья дуэль: бой, выбор соперника, статы, топ, удаление игрока
+# Гномья дуэль: бой, выбор соперника, интерактивные ходы, статы, топ, удаление игрока
 from handlers.duel import (
     duel_command,
     duel_select_callback,
+    duel_action_callback,
     duel_stats_command,
     duel_top_command,
     duel_delete_command,
@@ -109,9 +110,10 @@ def main():
     # Инлайн-погода: город набирается в поле ввода после @бота
     application.add_handler(InlineQueryHandler(weather_inline_query))
 
-    # Дуэли: команда, кнопки выбора соперника, статы и админ-удаление
+    # Дуэли: команда, вызовы, кнопки атак/блоков, статы и админ-удаление
     application.add_handler(CommandHandler("duel", duel_command))
     application.add_handler(CallbackQueryHandler(duel_select_callback, pattern="^start_duel_"))
+    application.add_handler(CallbackQueryHandler(duel_action_callback, pattern="^duel_strike_"))
     application.add_handler(CommandHandler("duel_stats", duel_stats_command))
     application.add_handler(CommandHandler("duel_top", duel_top_command))
     application.add_handler(CommandHandler("duel_delete", duel_delete_command))

@@ -1,6 +1,8 @@
+import asyncio
 import json
 import random
 from pathlib import Path
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import DICK_STEAL_CHANCE, TOP_SORT_BY, ADMIN_IDS, WINNER_100_PTS_GIF, MAX_DAILY_POINTS
@@ -14,11 +16,64 @@ from database import (
 )
 
 AUTO_DELETE_DELAY = 60
+MOVE_TIMEOUT = 10  # 10 секунд на ход
 
 _DWARFS_FACTS_PATH = Path(__file__).resolve().parent.parent / "data" / "dwarfs_facts.json"
 with open(_DWARFS_FACTS_PATH, encoding="utf-8") as _facts_file:
     DWARFS_FACTS = tuple(json.load(_facts_file)["facts"])
 
+# Хранилище активных дуэлей в памяти: state[chat_id] = { ... }
+ACTIVE_DUELS = {}
+
+# --- СЛОВАРИ ДЛЯ РАЗНООБРАЗИЯ ТЕКСТА (БЕЗ МАТА) ---
+TARGET_NAMES = {
+    "head": "Голова 🧠",
+    "body": "Торс 🛡️",
+    "crotch": "Пах 🍆"
+}
+
+ATTACK_PHRASES = [
+    "замахивается кухонным тесаком",
+    "делает резкий выпад финкой",
+    "целится заточенным кованым ножом",
+    "производит стремительный выпадок с ножом",
+    "пытается нанести коварный тычок",
+    "выполняет молниеносную атаку кликом"
+]
+
+HIT_PHRASES = [
+    "точно вонзает лезвие в цель!",
+    "пробивает оборону и наносит сокрушительный удар!",
+    "находит уязвимое место и чисто побеждает!",
+    "сбивает соперника с ног отличным выпадом!",
+    "завершает поединок точным попаданием!"
+]
+
+BLOCK_PHRASES = [
+    "успевает подставить гарду и парирует удар!",
+    "ловко отскакивает и блокирует выпад!",
+    "предугадывает траекторию и защищает уязвимое место!",
+    "слышит звон стали — блок сработал идеально!",
+    "замечает замах и вовремя перекрывает зону атаки!"
+]
+
+MISS_PHRASES = [
+    "поскальзывается на ровном месте и режет воздух!",
+    "теряет равновесие и чиркает ножом по стене!",
+    "промахивается буквально в миллиметре от цели!",
+    "зацепляется сапогом за корень и шлепается мимо!",
+    "выпускает нож из влажных ладоней, теряя момент!"
+]
+
+SUICIDE_PHRASES = [
+    "пытается сделать крученый финт, но вонзает нож себе в ногу!",
+    "спотыкается о собственный плащ и падая натыкается на свое же лезвие!",
+    "решает подбросить нож для красоты, но не ловит его и выбивает сам себя!",
+    "выполняет опасный кульбит и случайно нокаутирует себя рукоятью!",
+    "переусердствовал с замахом и наносит критический урон самому себе!"
+]
+
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
 async def delete_messages_job(context: ContextTypes.DEFAULT_TYPE):
     job_data = context.job.data
@@ -78,6 +133,300 @@ async def send_and_schedule(
     schedule_auto_delete(context, chat_id=chat_id, message_ids=to_delete)
 
 
+# --- ЛОГИКА ИНТЕРАКТИВНОГО БОЯ ---
+
+def _get_strike_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton("🎯 Голова", callback_data="duel_strike_head"),
+            InlineKeyboardButton("🛡️ Торс", callback_data="duel_strike_body"),
+            InlineKeyboardButton("🍆 Пах", callback_data="duel_strike_crotch"),
+        ]
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+
+async def _start_interactive_fight(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    attacker_tg,
+    defender_tg,
+    attacker_data: dict,
+    defender_data: dict,
+    original_msg_id: int = None
+):
+    secret_block = random.choice(["head", "body", "crotch"])
+    duel_state = {
+        "attacker_tg": attacker_tg,
+        "defender_tg": defender_tg,
+        "attacker_data": attacker_data,
+        "defender_data": defender_data,
+        "secret_block": secret_block,
+        "round": 1,
+        "message_id": None,
+        "turn_task": None,
+        "original_msg_id": original_msg_id
+    }
+    ACTIVE_DUELS[chat_id] = duel_state
+
+    att_title = format_user_title(attacker_data)
+    def_title = format_user_title(defender_data)
+
+    text = (
+        f"🗡️ <b>Гномья дуэль начинается!</b>\n\n"
+        f"⚔️ Атакует: <b>{att_title}</b>\n"
+        f"🛡️ Защищается: <b>{def_title}</b> (уже выбрал секретную зону блока!)\n\n"
+        f"⏳ У <b>{att_title}</b> есть {MOVE_TIMEOUT} секунд, чтобы выбрать точку удара:"
+    )
+
+    bot_msg = await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode="HTML",
+        reply_markup=_get_strike_keyboard()
+    )
+
+    duel_state["message_id"] = bot_msg.message_id
+
+    task = asyncio.create_task(_auto_move_timer(context, chat_id, duel_state["round"]))
+    duel_state["turn_task"] = task
+
+
+async def _auto_move_timer(context: ContextTypes.DEFAULT_TYPE, chat_id: int, round_num: int):
+    await asyncio.sleep(MOVE_TIMEOUT)
+    duel = ACTIVE_DUELS.get(chat_id)
+
+    if duel and duel.get("round") == round_num:
+        random_choice = random.choice(["head", "body", "crotch"])
+        att_title = format_user_title(duel["attacker_data"])
+        
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⏰ <b>{att_title}</b> зазевался! Система делает случайный выбор...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        
+        await _process_strike(context, chat_id, random_choice)
+
+
+async def duel_strike_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not query or not query.data or not query.data.startswith("duel_strike_"):
+        return
+
+    chat_id = update.effective_chat.id
+    duel = ACTIVE_DUELS.get(chat_id)
+
+    if not duel:
+        await query.answer("Дуэль не найдена или уже завершена.", show_alert=True)
+        return
+
+    if query.from_user.id != duel["attacker_tg"].id:
+        await query.answer("Сейчас не ваш ход!", show_alert=True)
+        return
+
+    await query.answer()
+
+    if duel.get("turn_task") and not duel["turn_task"].done():
+        duel["turn_task"].cancel()
+
+    target_zone = query.data.replace("duel_strike_", "")
+    await _process_strike(context, chat_id, target_zone)
+
+
+# Алиас для совместимости с bot.py
+duel_action_callback = duel_strike_callback
+
+
+async def _process_strike(context: ContextTypes.DEFAULT_TYPE, chat_id: int, strike_zone: str):
+    duel = ACTIVE_DUELS.get(chat_id)
+    if not duel:
+        return
+
+    attacker_data = duel["attacker_data"]
+    defender_data = duel["defender_data"]
+    att_title = format_user_title(attacker_data)
+    def_title = format_user_title(defender_data)
+    secret_block = duel["secret_block"]
+
+    # 1. Шанс 1% — Самоубийство
+    if random.random() < 0.01:
+        suicide_phrase = random.choice(SUICIDE_PHRASES)
+        res_text = (
+            f"💥 <b>НЕВЕРОЯТНЫЙ ИСХОД!</b>\n\n"
+            f"<b>{att_title}</b> {suicide_phrase}\n\n"
+            f"🏆 Победитель по глупости соперника: <b>{def_title}</b>!"
+        )
+        await _finish_duel(context, chat_id, winner=defender_data, loser=attacker_data, custom_text=res_text)
+        return
+
+    # 2. Шанс 5% — Промах
+    if random.random() < 0.05:
+        miss_phrase = random.choice(MISS_PHRASES)
+        att_action = random.choice(ATTACK_PHRASES)
+        
+        duel["attacker_tg"], duel["defender_tg"] = duel["defender_tg"], duel["attacker_tg"]
+        duel["attacker_data"], duel["defender_data"] = duel["defender_data"], duel["attacker_data"]
+        duel["secret_block"] = random.choice(["head", "body", "crotch"])
+        duel["round"] += 1
+
+        new_att_title = format_user_title(duel["attacker_data"])
+        new_def_title = format_user_title(duel["defender_data"])
+
+        text = (
+            f"💨 <b>ПРОМАХ!</b>\n"
+            f"<b>{att_title}</b> {att_action} в зону ({TARGET_NAMES[strike_zone]}), но {miss_phrase}\n\n"
+            f"🔄 <b>Смена ролей!</b>\n"
+            f"⚔️ Атакует: <b>{new_att_title}</b>\n"
+            f"🛡️ Защищается: <b>{new_def_title}</b> (зона блока уже выбрана!)\n\n"
+            f"⏳ У <b>{new_att_title}</b> есть {MOVE_TIMEOUT} секунд на удар:"
+        )
+
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=duel["message_id"],
+                text=text,
+                parse_mode="HTML",
+                reply_markup=_get_strike_keyboard()
+            )
+        except Exception:
+            bot_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=_get_strike_keyboard()
+            )
+            duel["message_id"] = bot_msg.message_id
+
+        task = asyncio.create_task(_auto_move_timer(context, chat_id, duel["round"]))
+        duel["turn_task"] = task
+        return
+
+    # 3. Сравнение УДАРА и БЛОКА
+    if strike_zone == secret_block:
+        block_phrase = random.choice(BLOCK_PHRASES)
+        att_action = random.choice(ATTACK_PHRASES)
+
+        duel["attacker_tg"], duel["defender_tg"] = duel["defender_tg"], duel["attacker_tg"]
+        duel["attacker_data"], duel["defender_data"] = duel["defender_data"], duel["attacker_data"]
+        duel["secret_block"] = random.choice(["head", "body", "crotch"])
+        duel["round"] += 1
+
+        new_att_title = format_user_title(duel["attacker_data"])
+        new_def_title = format_user_title(duel["defender_data"])
+
+        text = (
+            f"🛡️ <b>БЛОК СРАБОТАЛ!</b>\n"
+            f"<b>{att_title}</b> {att_action} в зону ({TARGET_NAMES[strike_zone]}), но <b>{def_title}</b> {block_phrase}\n\n"
+            f"🔄 <b>Инициатива переходит!</b>\n"
+            f"⚔️ Атакует: <b>{new_att_title}</b>\n"
+            f"🛡️ Защищается: <b>{new_def_title}</b> (зона блока выбрана!)\n\n"
+            f"⏳ У <b>{new_att_title}</b> есть {MOVE_TIMEOUT} секунд на удар:"
+        )
+
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=duel["message_id"],
+                text=text,
+                parse_mode="HTML",
+                reply_markup=_get_strike_keyboard()
+            )
+        except Exception:
+            bot_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=_get_strike_keyboard()
+            )
+            duel["message_id"] = bot_msg.message_id
+
+        task = asyncio.create_task(_auto_move_timer(context, chat_id, duel["round"]))
+        duel["turn_task"] = task
+
+    else:
+        hit_phrase = random.choice(HIT_PHRASES)
+        att_action = random.choice(ATTACK_PHRASES)
+
+        res_text = (
+            f"💥 <b>ТОЧНЫЙ УДАР!</b>\n"
+            f"<b>{att_title}</b> {att_action} в зону ({TARGET_NAMES[strike_zone]}), а <b>{def_title}</b> блокировал ({TARGET_NAMES[secret_block]}).\n"
+            f"<b>{att_title}</b> {hit_phrase}\n"
+        )
+        await _finish_duel(context, chat_id, winner=attacker_data, loser=defender_data, custom_text=res_text)
+
+
+async def _finish_duel(context: ContextTypes.DEFAULT_TYPE, chat_id: int, winner: dict, loser: dict, custom_text: str):
+    duel = ACTIVE_DUELS.pop(chat_id, None)
+
+    is_dick_stolen = random.random() < DICK_STEAL_CHANCE
+
+    try:
+        w_after, l_after = execute_duel_transaction(
+            chat_id=chat_id,
+            winner_user=winner,
+            loser_user=loser,
+            is_dick_stolen=is_dick_stolen
+        )
+    except Exception:
+        bot_msg = await context.bot.send_message(chat_id, "⚠️ Ошибка проведения дуэли. Попробуйте снова.")
+        schedule_auto_delete(context, chat_id, [bot_msg.message_id])
+        return
+
+    win_title = format_user_title(winner)
+    lose_title = format_user_title(loser)
+
+    res_msg = (
+        f"{custom_text}\n"
+        f"🗡️ <b>Результаты дуэли:</b>\n\n"
+        f"Победитель: <b>{win_title}</b>\n"
+        f"Проигравший: <b>{lose_title}</b>\n\n"
+        f"<b>{win_title}</b>: +10 очков ({w_after}/100)\n"
+        f"<b>{lose_title}</b>: -5 очков ({l_after}/100)\n"
+    )
+
+    if is_dick_stolen:
+        fact = random.choice(DWARFS_FACTS)
+        res_msg += (
+            f"\n💀 <b>И ВДОБАВОК У НЕГО УКРАЛИ ХУЙ.</b>\n"
+            f"Сегодня {lose_title} больше не может драться.\n\n"
+            f"📖 <i>{fact}</i>"
+        )
+
+    if duel and duel.get("message_id"):
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=duel["message_id"])
+        except Exception:
+            pass
+
+    bot_msg = await context.bot.send_message(chat_id, res_msg, parse_mode="HTML")
+
+    to_delete = []
+    if not is_dick_stolen:
+        to_delete.append(bot_msg.message_id)
+    if duel and duel.get("original_msg_id"):
+        to_delete.append(duel["original_msg_id"])
+
+    if to_delete:
+        schedule_auto_delete(context, chat_id, to_delete)
+
+    reached_max = winner["points"] < MAX_DAILY_POINTS and w_after >= MAX_DAILY_POINTS
+    if reached_max and WINNER_100_PTS_GIF:
+        try:
+            await context.bot.send_animation(
+                chat_id=chat_id,
+                animation=WINNER_100_PTS_GIF,
+                caption=f"🏆 <b>{win_title}</b> набрал {MAX_DAILY_POINTS} очков!",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+
 async def _process_duel_fight(
     context: ContextTypes.DEFAULT_TYPE,
     initiator_tg,
@@ -85,6 +434,11 @@ async def _process_duel_fight(
     chat_id: int,
     original_msg_id: int = None
 ):
+    if chat_id in ACTIVE_DUELS:
+        bot_msg = await context.bot.send_message(chat_id, "⚔️ В этом чате уже идет дуэль! Дождитесь ее окончания.")
+        schedule_auto_delete(context, chat_id, [bot_msg.message_id])
+        return
+
     if initiator_tg.username and initiator_tg.username.lower() == target_username.lower():
         bot_msg = await context.bot.send_message(chat_id, "⚔️ Нельзя вызвать на дуэль самого себя!")
         schedule_auto_delete(context, chat_id, [bot_msg.message_id])
@@ -126,70 +480,25 @@ async def _process_duel_fight(
         schedule_auto_delete(context, chat_id, [bot_msg.message_id])
         return
 
-    total_points = initiator["points"] + opponent["points"]
-    initiator_win_chance = initiator["points"] / total_points if total_points > 0 else 0.5
+    class SimpleTGUser:
+        def __init__(self, uid, uname):
+            self.id = uid
+            self.username = uname
 
-    if random.random() < initiator_win_chance:
-        winner, loser = initiator, opponent
-    else:
-        winner, loser = opponent, initiator
+    opponent_tg = SimpleTGUser(opponent["user_id"], opponent["username"])
 
-    is_dick_stolen = random.random() < DICK_STEAL_CHANCE
-
-    try:
-        w_after, l_after = execute_duel_transaction(
-            chat_id=chat_id,
-            winner_user=winner,
-            loser_user=loser,
-            is_dick_stolen=is_dick_stolen
-        )
-    except Exception:
-        bot_msg = await context.bot.send_message(chat_id, "⚠️ Ошибка проведения дуэли. Попробуйте снова.")
-        schedule_auto_delete(context, chat_id, [bot_msg.message_id])
-        return
-
-    win_title = format_user_title(winner)
-    lose_title = format_user_title(loser)
-
-    res_msg = (
-        f"🗡️ <b>Гномья дуэль на ножах!</b>\n\n"
-        f"Победитель: <b>{win_title}</b>\n"
-        f"Проигравший: <b>{lose_title}</b>\n\n"
-        f"<b>{win_title}</b>: +10 очков ({w_after}/100)\n"
-        f"<b>{lose_title}</b>: -5 очков ({l_after}/100)\n"
+    await _start_interactive_fight(
+        context=context,
+        chat_id=chat_id,
+        attacker_tg=initiator_tg,
+        defender_tg=opponent_tg,
+        attacker_data=initiator,
+        defender_data=opponent,
+        original_msg_id=original_msg_id
     )
 
-    if is_dick_stolen:
-        fact = random.choice(DWARFS_FACTS)
-        res_msg += (
-            f"\n💀 <b>И ВДОБАВОК У НЕГО УКРАЛИ ХУЙ.</b>\n"
-            f"Сегодня {lose_title} больше не может драться.\n\n"
-            f"📖 <i>{fact}</i>"
-        )
 
-    bot_msg = await context.bot.send_message(chat_id, res_msg, parse_mode="HTML")
-
-    to_delete = []
-    if not is_dick_stolen:
-        to_delete.append(bot_msg.message_id)
-    if original_msg_id:
-        to_delete.append(original_msg_id)
-
-    if to_delete:
-        schedule_auto_delete(context, chat_id, to_delete)
-
-    reached_max = winner["points"] < MAX_DAILY_POINTS and w_after >= MAX_DAILY_POINTS
-    if reached_max and WINNER_100_PTS_GIF:
-        try:
-            await context.bot.send_animation(
-                chat_id=chat_id,
-                animation=WINNER_100_PTS_GIF,
-                caption=f"🏆 <b>{win_title}</b> набрал {MAX_DAILY_POINTS} очков!",
-                parse_mode="HTML",
-            )
-        except Exception:
-            pass
-
+# --- КОМАНДЫ ХЭНДЛЕРА ---
 
 async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user or not update.message.chat:
