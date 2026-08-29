@@ -3,7 +3,7 @@ import random
 from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from config import DICK_STEAL_CHANCE, TOP_SORT_BY, ADMIN_IDS
+from config import DICK_STEAL_CHANCE, TOP_SORT_BY, ADMIN_IDS, WINNER_100_PTS_GIF, MAX_DAILY_POINTS
 from database import (
     get_or_create_duel_user,
     get_duel_user_by_username,
@@ -177,6 +177,18 @@ async def _process_duel_fight(
 
     if to_delete:
         schedule_auto_delete(context, chat_id, to_delete)
+
+    reached_max = winner["points"] < MAX_DAILY_POINTS and w_after >= MAX_DAILY_POINTS
+    if reached_max and WINNER_100_PTS_GIF:
+        try:
+            await context.bot.send_animation(
+                chat_id=chat_id,
+                animation=WINNER_100_PTS_GIF,
+                caption=f"🏆 <b>{win_title}</b> набрал {MAX_DAILY_POINTS} очков!",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
 
 
 async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
