@@ -18,6 +18,7 @@ from telegram.ext import (
     CommandHandler,  # сообщения вида /команда
     MessageHandler,  # обычный текст и медиа
     CallbackQueryHandler,  # нажатия inline-кнопок
+    InlineQueryHandler,  # инлайн: набор текста в поле ввода без отправки команды
     filters,  # отбор апдейтов: текст, фото, тип чата и т.д.
 )
 
@@ -38,7 +39,7 @@ from handlers.game import daily_beauty_job  # ежедневный пидор д
 from handlers.past_pizda import schedule_past_pizda_job  # отложенные «пизда» на старые «да»
 from handlers.triggers import respond_trigger  # реакции на обычный текст в чате
 from handlers.utils import get_file_id_handler, error_handler  # file_id в личке и лог ошибок
-from handlers.weather import weather_command, weather_city_reply, weather_city_reply_filter  # погода и ввод города
+from handlers.weather import weather_command, weather_inline_query  # погода: /weather и инлайн @бот город
 
 # Гномья дуэль: бой, выбор соперника, статы, топ, удаление игрока
 from handlers.duel import (
@@ -105,6 +106,9 @@ def main():
     application.add_handler(CommandHandler("toggle_autodelete", toggle_autodelete_command))
     application.add_handler(CommandHandler("weather", weather_command))
 
+    # Инлайн-погода: город набирается в поле ввода после @бота
+    application.add_handler(InlineQueryHandler(weather_inline_query))
+
     # Дуэли: команда, кнопки выбора соперника, статы и админ-удаление
     application.add_handler(CommandHandler("duel", duel_command))
     application.add_handler(CallbackQueryHandler(duel_select_callback, pattern="^start_duel_"))
@@ -117,14 +121,6 @@ def main():
         filters.PHOTO | filters.ANIMATION | filters.VIDEO | filters.Document.ALL
     ) & filters.ChatType.PRIVATE
     application.add_handler(MessageHandler(media_filter, get_file_id_handler))
-
-    # Ответ на «Введите название города:» после /weather без аргументов
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND & weather_city_reply_filter,
-            weather_city_reply,
-        )
-    )
 
     # Текстовые триггеры (да/нет, ДР, let_do и т.д.), команды сюда не попадают
     application.add_handler(
