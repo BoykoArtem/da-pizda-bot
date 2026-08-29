@@ -39,7 +39,7 @@ from handlers.game import daily_beauty_job  # ежедневный пидор д
 from handlers.past_pizda import schedule_past_pizda_job  # отложенные «пизда» на старые «да»
 from handlers.triggers import respond_trigger  # реакции на обычный текст в чате
 from handlers.utils import get_file_id_handler, error_handler  # file_id в личке и лог ошибок
-from handlers.weather import weather_command, weather_inline_query  # погода: /weather и инлайн @бот город
+from handlers.weather import weather_inline_query  # погода: инлайн @бот город
 
 # Гномья дуэль: бой, выбор соперника, статы, топ, удаление игрока
 from handlers.duel import (
@@ -61,7 +61,6 @@ logging.basicConfig(
 BOT_COMMANDS = [
     BotCommand("start", "Старт"),
     BotCommand("top", "Топ пидоров чата"),
-    BotCommand("weather", "Погода в городе"),
     BotCommand("duel", "Гномья дуэль"),
     BotCommand("duel_stats", "Статистика дуэлей"),
     BotCommand("duel_top", "Топ дуэлянтов"),
@@ -104,7 +103,6 @@ def main():
     application.add_handler(CommandHandler("setbday", set_bday_command))
     application.add_handler(CommandHandler("toggle_forward", toggle_forward_reply_command))
     application.add_handler(CommandHandler("toggle_autodelete", toggle_autodelete_command))
-    application.add_handler(CommandHandler("weather", weather_command))
 
     # Инлайн-погода: город набирается в поле ввода после @бота
     application.add_handler(InlineQueryHandler(weather_inline_query))
