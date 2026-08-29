@@ -1,4 +1,6 @@
+import json
 import random
+from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import DICK_STEAL_CHANCE, TOP_SORT_BY, ADMIN_IDS
@@ -12,6 +14,10 @@ from database import (
 )
 
 AUTO_DELETE_DELAY = 60
+
+_DWARFS_FACTS_PATH = Path(__file__).resolve().parent.parent / "data" / "dwarfs_facts.json"
+with open(_DWARFS_FACTS_PATH, encoding="utf-8") as _facts_file:
+    DWARFS_FACTS = tuple(json.load(_facts_file)["facts"])
 
 
 async def delete_messages_job(context: ContextTypes.DEFAULT_TYPE):
@@ -154,15 +160,23 @@ async def _process_duel_fight(
     )
 
     if is_dick_stolen:
-        res_msg += f"\n💀 <b>И ВДОБАВОК У НЕГО УКРАЛИ ХУЙ.</b>\nСегодня {lose_title} больше не может драться."
+        fact = random.choice(DWARFS_FACTS)
+        res_msg += (
+            f"\n💀 <b>И ВДОБАВОК У НЕГО УКРАЛИ ХУЙ.</b>\n"
+            f"Сегодня {lose_title} больше не может драться.\n\n"
+            f"📖 <i>{fact}</i>"
+        )
 
     bot_msg = await context.bot.send_message(chat_id, res_msg, parse_mode="HTML")
 
-    to_delete = [bot_msg.message_id]
+    to_delete = []
+    if not is_dick_stolen:
+        to_delete.append(bot_msg.message_id)
     if original_msg_id:
         to_delete.append(original_msg_id)
 
-    schedule_auto_delete(context, chat_id, to_delete)
+    if to_delete:
+        schedule_auto_delete(context, chat_id, to_delete)
 
 
 async def duel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
