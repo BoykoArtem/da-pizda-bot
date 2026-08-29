@@ -1,4 +1,6 @@
+import json
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,24 +12,35 @@ raw_admin_ids = os.getenv("ADMIN_IDS", os.getenv("ADMIN_ID", ""))
 ADMIN_IDS = {int(x.strip()) for x in raw_admin_ids.split(",") if x.strip().isdigit()}
 
 # --- GIF и Медиа файлы ---
-GIF_FILE_ID = "CgACAgIAAx0CT5HpJwABIvLFaom6NKy2zmkAAWBNrsYmFfgTcoB7AAJxJQAC81hYSW_i-PO0dPOWPQQ"
-BIRTHDAY_GIF_ID = "CgACAgQAAxkBAAIFBGqJwbeWNNoHZyHu6jPdOEK2DDa9AAIjAwAC0DoFU1R2_ufiAzEAAT0E"
-RUSSIA_GIF_FILE_ID = "CgACAgIAAxkBAAIFemqLJ9bNTsg1KqypNQFdHi7zJY3YAAK0NgACGLQ4StOiwaNwIPsPPQQ"
-WINNER_100_PTS_GIF = "CgACAgIAAx0CT5HpJwABIvnBao1gIevcBSmVkSVPoihctaZDNDMAAuiEAAJdEHFIpAui-RjE9Ek9BA"
+_WEATHER_CONTENT_PATH = Path(__file__).resolve().parent / "data" / "weather_content.json"
+with open(_WEATHER_CONTENT_PATH, encoding="utf-8") as _content_file:
+    _weather_content = json.load(_content_file)
 
-LET_DO_STICKER_IDS = [
-    "CAACAgIAAxkBAAERxb1qiy1ELop7BAbp2OuaV5odzQibBwACQxsAAgGEKUuE9pPRkzKm0j0E",
-    "CAACAgIAAxkBAAERxb9qiy1NuEpe_5ycltOj-JxAplvA4gAC0RcAAtk5KUslsIBH-f94pD0E",
-]
+OREL_GIF_IDS = _weather_content["orel_gif_ids"]
+RUSSIA_GIF_FILE_ID = _weather_content["russia_gif_file_id"]
+MOSCOW_PHOTO_IDS = _weather_content["moscow_photo_ids"]
+MOSCOW_STICKER_IDS = _weather_content["moscow_sticker_ids"]
+SPB_PHOTO_IDS = _weather_content["spb_photo_ids"]
+NSK_PHOTO_IDS = _weather_content["nsk_photo_ids"]
+PERM_PHOTO_IDS = _weather_content["perm_photo_ids"]
 
-PERM_PHOTO_IDS = [
-    "AgACAgIAAxkBAAIFfmqLK9APwKZ2VzzlTMUE9AE4vNadAALwIGsbTjJYSO5CxBV7789fAQADAgADeAADPQQ",
-    "AgACAgIAAxkBAAIFf2qLK97PVxvwbDQa-2_1pRSA2mYpAALxIGsbTjJYSPNL5z3lbLgAAQEAAwIAA3gAAz0E",
-    "AgACAgIAAxkBAAIFgGqLLAUxeNWrFWZNEF7eoDz6CtuuAALyIGsbTjJYSHH4ClLDZaxHAQADAgADeAADPQQ",
-    "AgACAgIAAxkBAAIFgWqLLA7BlSd3xnhpC32hIfHBo4-uAALzIGsbTjJYSHGh9N8_CQzPAQADAgADeAADPQQ",
-    "AgACAgIAAxkBAAIFgmqLLCVkVe49zX1OsI9qe96mM3t2AAL2IGsbTjJYSBSNvamUAx2HAQADAgADeAADPQQ",
-    "AgACAgIAAxkBAAIFg2qLLLcaU9iagtLlp6rfqd7_-hEMAAL3IGsbTjJYSOrHN3s5l_TrAQADAgADeAADPQQ",
-]
+_LET_DO_CONTENT_PATH = Path(__file__).resolve().parent / "data" / "let_do_content.json"
+with open(_LET_DO_CONTENT_PATH, encoding="utf-8") as _let_do_file:
+    _let_do_content = json.load(_let_do_file)
+
+LET_DO_STICKER_IDS = _let_do_content["sticker_ids"]
+
+_DUEL_CONTENT_PATH = Path(__file__).resolve().parent / "data" / "duel_content.json"
+with open(_DUEL_CONTENT_PATH, encoding="utf-8") as _duel_file:
+    _duel_content = json.load(_duel_file)
+
+WINNER_100_PTS_GIF = _duel_content["winner_100_pts_gif"]
+
+_BIRTHDAY_CONTENT_PATH = Path(__file__).resolve().parent / "data" / "birthday_content.json"
+with open(_BIRTHDAY_CONTENT_PATH, encoding="utf-8") as _birthday_file:
+    _birthday_content = json.load(_birthday_file)
+
+BIRTHDAY_GIF_ID = _birthday_content["birthday_gif_id"]
 
 # --- Настройки планировщика ---
 GAME_HOUR = 18
