@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from telegram import Update
 from telegram.ext import ContextTypes
-from config import GIF_FILE_ID, BIRTHDAY_GIF_ID, LET_DO_STICKER_IDS
+from config import OREL_GIF_IDS, BIRTHDAY_GIF_ID, LET_DO_STICKER_IDS
 from database import (
     save_or_update_user,
     save_custom_birthdate,
@@ -119,9 +119,9 @@ async def respond_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "Может быть ты покинешь чат?",
                     reply_to_message_id=update.message.message_id
                 )
-            if random.random() < 0.3 and GIF_FILE_ID:
+            if random.random() < 0.3 and OREL_GIF_IDS:
                 await update.message.reply_animation(
-                    animation=GIF_FILE_ID,
+                    animation=random.choice(OREL_GIF_IDS),
                     reply_to_message_id=update.message.message_id
                 )
 
