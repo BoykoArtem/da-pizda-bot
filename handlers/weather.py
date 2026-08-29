@@ -5,20 +5,18 @@ from telegram import (
     Update,
     InlineQueryResultArticle,
     InlineQueryResultCachedMpeg4Gif,
+    InlineQueryResultCachedPhoto,
     InputTextMessageContent,
 )
-from telegram.ext import ContextTypes, ApplicationHandlerStop
+from telegram.ext import ContextTypes
 from config import (
     OREL_GIF_IDS,
     RUSSIA_GIF_FILE_ID,
     PERM_PHOTO_IDS,
     MOSCOW_PHOTO_IDS,
-    MOSCOW_STICKER_IDS,
     SPB_PHOTO_IDS,
     NSK_PHOTO_IDS,
 )
-
-_WEATHER_BONUS_KEY = "weather_bonus"
 
 WEATHER_CODES = {
     0: ("☀️", "Ясно"),
@@ -63,6 +61,8 @@ for _alias in NSK_ALIASES:
     CITY_GEO_QUERY[_alias] = "Новосибирск"
 for _alias in PERM_ALIASES:
     CITY_GEO_QUERY[_alias] = "Пермь"
+for _alias in ("орел", "орёл"):
+    CITY_GEO_QUERY[_alias] = "Орёл"
 
 
 def _geo_query_name(city: str) -> str:
@@ -70,37 +70,38 @@ def _geo_query_name(city: str) -> str:
     return CITY_GEO_QUERY.get(city.strip().lower(), city.strip())
 
 
-def _bonus_media(city_normalized: str):
-    """Пасхальное фото или стикер после прогноза, либо None."""
-    if city_normalized in MOSCOW_ALIASES:
-        moscow_media = (
-            [("photo", photo_id) for photo_id in MOSCOW_PHOTO_IDS]
-            + [("sticker", sticker_id) for sticker_id in MOSCOW_STICKER_IDS]
-        )
-        if moscow_media:
-            return random.choice(moscow_media)
-
-    if city_normalized in SPB_ALIASES and SPB_PHOTO_IDS:
-        return ("photo", random.choice(SPB_PHOTO_IDS))
-
-    if city_normalized in NSK_ALIASES and NSK_PHOTO_IDS:
-        return ("photo", random.choice(NSK_PHOTO_IDS))
-
-    if city_normalized in PERM_ALIASES and PERM_PHOTO_IDS:
-        return ("photo", random.choice(PERM_PHOTO_IDS))
-
+def _bonus_photo(query: str, api_city_name: str = "") -> str | None:
+    """Фото-пасхалка по тому городу, который уйдёт в прогноз."""
+    names = [query.strip().lower(), api_city_name.strip().lower()]
+    for city_normalized in names:
+        if not city_normalized:
+            continue
+        if city_normalized in MOSCOW_ALIASES and MOSCOW_PHOTO_IDS:
+            return random.choice(MOSCOW_PHOTO_IDS)
+        if city_normalized in SPB_ALIASES and SPB_PHOTO_IDS:
+            return random.choice(SPB_PHOTO_IDS)
+        if city_normalized in NSK_ALIASES and NSK_PHOTO_IDS:
+            return random.choice(NSK_PHOTO_IDS)
+        if city_normalized in PERM_ALIASES and PERM_PHOTO_IDS:
+            return random.choice(PERM_PHOTO_IDS)
     return None
 
 
-def _set_pending_bonus(context: ContextTypes.DEFAULT_TYPE, bonus) -> None:
-    if bonus:
-        context.user_data[_WEATHER_BONUS_KEY] = bonus
-    else:
-        context.user_data.pop(_WEATHER_BONUS_KEY, None)
+def _bonus_gif(query: str, api_city_name: str = "") -> str | None:
+    """Гиф-пасхалка по тому городу, который уйдёт в прогноз."""
+    names = [query.strip().lower(), api_city_name.strip().lower()]
+    for city_normalized in names:
+        if not city_normalized:
+            continue
+        if city_normalized in ["орел", "орёл"] and OREL_GIF_IDS:
+            return random.choice(OREL_GIF_IDS)
+        if city_normalized == "россия" and RUSSIA_GIF_FILE_ID:
+            return RUSSIA_GIF_FILE_ID
+    return None
 
 
-def _fetch_weather_html(city: str) -> str | None:
-    """Текст прогноза в HTML или None, если город не найден."""
+def _fetch_weather_html(city: str) -> tuple[str, str] | None:
+    """Текст прогноза в HTML и имя города из API, либо None."""
     geo_name = _geo_query_name(city)
 
     # 1. Поиск координат через Geocoding API
@@ -140,7 +141,7 @@ def _fetch_weather_html(city: str) -> str | None:
         f"{emoji} <b>{desc}</b>\n"
         f"🌡️ Температура: <b>{temp}°C</b> (ощущается как {apparent}°C)\n"
         f"💨 Ветер: <b>{wind_speed} м/с</b>\n"
-    )
+    ), city_name
 
 
 def _inline_id() -> str:
@@ -159,44 +160,24 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
         await inline_query.answer([], cache_time=1, is_personal=True)
         return
 
-    city_normalized = city.lower()
-
-    # Пасхалка на Орёл
-    if city_normalized in ["орел", "орёл"] and OREL_GIF_IDS:
-        _set_pending_bonus(context, None)
-        await inline_query.answer(
-            [
-                InlineQueryResultCachedMpeg4Gif(
-                    id=_inline_id(),
-                    mpeg4_file_id=random.choice(OREL_GIF_IDS),
-                    title="Орёл",
-                )
-            ],
-            cache_time=10,
-            is_personal=True,
-        )
-        return
-
-    # Пасхалка на Россию
-    if city_normalized == "россия" and RUSSIA_GIF_FILE_ID:
-        _set_pending_bonus(context, None)
-        await inline_query.answer(
-            [
-                InlineQueryResultCachedMpeg4Gif(
-                    id=_inline_id(),
-                    mpeg4_file_id=RUSSIA_GIF_FILE_ID,
-                    title="Россия",
-                )
-            ],
-            cache_time=10,
-            is_personal=True,
-        )
-        return
-
     try:
-        text = _fetch_weather_html(city)
-        if text is None:
-            _set_pending_bonus(context, None)
+        fetched = _fetch_weather_html(city)
+        text, api_city_name = fetched if fetched else (None, "")
+        gif_id = _bonus_gif(city, api_city_name)
+        if gif_id:
+            gif_kwargs = {
+                "id": _inline_id(),
+                "mpeg4_file_id": gif_id,
+                "title": f"Погода: {city}",
+            }
+            if text:
+                gif_kwargs["caption"] = text
+                gif_kwargs["parse_mode"] = "HTML"
+            result = InlineQueryResultCachedMpeg4Gif(**gif_kwargs)
+            await inline_query.answer([result], cache_time=30, is_personal=True)
+            return
+
+        if fetched is None:
             await inline_query.answer(
                 [
                     InlineQueryResultArticle(
@@ -212,17 +193,26 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        result = InlineQueryResultArticle(
-            id=_inline_id(),
-            title=f"Погода: {city}",
-            description="Отправить прогноз",
-            input_message_content=InputTextMessageContent(text, parse_mode="HTML"),
-        )
-        _set_pending_bonus(context, _bonus_media(city_normalized))
+        photo_id = _bonus_photo(city, api_city_name)
+        if photo_id:
+            result = InlineQueryResultCachedPhoto(
+                id=_inline_id(),
+                photo_file_id=photo_id,
+                title=f"Погода: {city}",
+                description="Отправить прогноз",
+                caption=text,
+                parse_mode="HTML",
+            )
+        else:
+            result = InlineQueryResultArticle(
+                id=_inline_id(),
+                title=f"Погода: {city}",
+                description="Отправить прогноз",
+                input_message_content=InputTextMessageContent(text, parse_mode="HTML"),
+            )
         await inline_query.answer([result], cache_time=30, is_personal=True)
 
     except Exception:
-        _set_pending_bonus(context, None)
         await inline_query.answer(
             [
                 InlineQueryResultArticle(
@@ -236,26 +226,3 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
             cache_time=1,
             is_personal=True,
         )
-
-
-async def weather_bonus_followup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """После отправки прогноза через инлайн досылает пасхальную картинку в тот же чат."""
-    message = update.message
-    if not message or not message.from_user:
-        return
-    if not message.via_bot or message.via_bot.id != context.bot.id:
-        return
-
-    bonus = context.user_data.pop(_WEATHER_BONUS_KEY, None)
-    if not bonus:
-        return
-
-    media_type, media_id = bonus
-    try:
-        if media_type == "photo":
-            await message.reply_photo(photo=media_id)
-        else:
-            await message.reply_sticker(sticker=media_id)
-    except Exception:
-        pass
-    raise ApplicationHandlerStop

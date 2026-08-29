@@ -19,7 +19,6 @@ with open(_WEATHER_CONTENT_PATH, encoding="utf-8") as _content_file:
 OREL_GIF_IDS = _weather_content["orel_gif_ids"]
 RUSSIA_GIF_FILE_ID = _weather_content["russia_gif_file_id"]
 MOSCOW_PHOTO_IDS = _weather_content["moscow_photo_ids"]
-MOSCOW_STICKER_IDS = _weather_content["moscow_sticker_ids"]
 SPB_PHOTO_IDS = _weather_content["spb_photo_ids"]
 NSK_PHOTO_IDS = _weather_content["nsk_photo_ids"]
 PERM_PHOTO_IDS = _weather_content["perm_photo_ids"]
