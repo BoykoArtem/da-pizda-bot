@@ -3,24 +3,14 @@ import uuid
 import requests
 from telegram import (
     Update,
-    Message,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InlineQueryResultCachedMpeg4Gif,
-    InlineQueryResultCachedPhoto,
-    InlineQueryResultCachedSticker,
     InputTextMessageContent,
 )
 from telegram.ext import ContextTypes
 from config import (
     OREL_GIF_IDS,
     RUSSIA_GIF_FILE_ID,
-    PERM_PHOTO_IDS,
-    MOSCOW_PHOTO_IDS,
-    MOSCOW_STICKER_IDS,
-    SPB_PHOTO_IDS,
-    NSK_PHOTO_IDS,
 )
 
 WEATHER_CODES = {
@@ -73,28 +63,6 @@ def _geo_query_name(city: str) -> str:
     return CITY_GEO_QUERY.get(city.strip().lower(), city.strip())
 
 
-def _bonus_media(city_normalized: str):
-    """Пасхальное фото или стикер после прогноза, либо None."""
-    if city_normalized in MOSCOW_ALIASES:
-        moscow_media = (
-            [("photo", photo_id) for photo_id in MOSCOW_PHOTO_IDS]
-            + [("sticker", sticker_id) for sticker_id in MOSCOW_STICKER_IDS]
-        )
-        if moscow_media:
-            return random.choice(moscow_media)
-
-    if city_normalized in SPB_ALIASES and SPB_PHOTO_IDS:
-        return ("photo", random.choice(SPB_PHOTO_IDS))
-
-    if city_normalized in NSK_ALIASES and NSK_PHOTO_IDS:
-        return ("photo", random.choice(NSK_PHOTO_IDS))
-
-    if city_normalized in PERM_ALIASES and PERM_PHOTO_IDS:
-        return ("photo", random.choice(PERM_PHOTO_IDS))
-
-    return None
-
-
 def _fetch_weather_html(city: str) -> str | None:
     """Текст прогноза в HTML или None, если город не найден."""
     geo_name = _geo_query_name(city)
@@ -139,41 +107,6 @@ def _fetch_weather_html(city: str) -> str | None:
     )
 
 
-async def _send_weather(message: Message, city: str):
-    city_normalized = city.strip().lower()
-
-    # Пасхалка на Орёл
-    if city_normalized in ["орел", "орёл"] and OREL_GIF_IDS:
-        await message.reply_animation(animation=random.choice(OREL_GIF_IDS))
-        return
-
-    # Пасхалка на Россию
-    if city_normalized == "россия":
-        await message.reply_animation(animation=RUSSIA_GIF_FILE_ID)
-        return
-
-    try:
-        text = _fetch_weather_html(city)
-        if text is None:
-            await message.reply_text(f"❌ Город '{city}' не найден.")
-            return
-
-        await message.reply_text(text, parse_mode="HTML")
-
-        bonus = _bonus_media(city_normalized)
-        if not bonus:
-            return
-
-        media_type, media_id = bonus
-        if media_type == "photo":
-            await message.reply_photo(photo=media_id)
-        else:
-            await message.reply_sticker(sticker=media_id)
-
-    except Exception:
-        await message.reply_text("⚠️ Не удалось получить данные о погоде.")
-
-
 def _inline_id() -> str:
     return uuid.uuid4().hex
 
@@ -186,20 +119,8 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
 
     city = (inline_query.query or "").strip()
     if not city:
-        await inline_query.answer(
-            [
-                InlineQueryResultArticle(
-                    id=_inline_id(),
-                    title="Напиши название города",
-                    description="Например: Москва",
-                    input_message_content=InputTextMessageContent(
-                        "Напиши город после имени бота, например: Москва"
-                    ),
-                )
-            ],
-            cache_time=1,
-            is_personal=True,
-        )
+        # Пустой запрос: без результатов, иначе «подсказка» уходит в чат как сообщение
+        await inline_query.answer([], cache_time=1, is_personal=True)
         return
 
     city_normalized = city.lower()
@@ -252,37 +173,13 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        results = [
-            InlineQueryResultArticle(
-                id=_inline_id(),
-                title=f"Погода: {city}",
-                description="Отправить прогноз",
-                input_message_content=InputTextMessageContent(text, parse_mode="HTML"),
-            )
-        ]
-
-        bonus = _bonus_media(city_normalized)
-        if bonus:
-            media_type, media_id = bonus
-            if media_type == "photo":
-                results.append(
-                    InlineQueryResultCachedPhoto(
-                        id=_inline_id(),
-                        photo_file_id=media_id,
-                        title="Картинка",
-                        caption=text,
-                        parse_mode="HTML",
-                    )
-                )
-            else:
-                results.append(
-                    InlineQueryResultCachedSticker(
-                        id=_inline_id(),
-                        sticker_file_id=media_id,
-                    )
-                )
-
-        await inline_query.answer(results, cache_time=30, is_personal=True)
+        result = InlineQueryResultArticle(
+            id=_inline_id(),
+            title=f"Погода: {city}",
+            description="Отправить прогноз",
+            input_message_content=InputTextMessageContent(text, parse_mode="HTML"),
+        )
+        await inline_query.answer([result], cache_time=30, is_personal=True)
 
     except Exception:
         await inline_query.answer(
@@ -298,36 +195,3 @@ async def weather_inline_query(update: Update, context: ContextTypes.DEFAULT_TYP
             cache_time=1,
             is_personal=True,
         )
-
-
-async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /weather <город> — прогноз. Без города открывает инлайн-ввод в поле сообщения."""
-    if not update.message:
-        return
-
-    city = " ".join(context.args).strip() if context.args else ""
-    if city:
-        await _send_weather(update.message, city)
-        return
-
-    # Меню «/» всё равно шлёт команду; удаляем её и переключаем поле ввода в инлайн
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
-
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "Ввести город",
-                    switch_inline_query_current_chat="",
-                )
-            ]
-        ]
-    )
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text="Нажми и напиши город в поле ввода",
-        reply_markup=keyboard,
-    )
