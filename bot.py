@@ -39,7 +39,7 @@ from handlers.game import daily_beauty_job  # ежедневный пидор д
 from handlers.past_pizda import schedule_past_pizda_job  # отложенные «пизда» на старые «да»
 from handlers.triggers import respond_trigger  # реакции на обычный текст в чате
 from handlers.utils import get_file_id_handler, error_handler  # file_id в личке и лог ошибок
-from handlers.weather import weather_inline_query, weather_bonus_followup  # погода: инлайн @бот город + пасхалки
+from handlers.weather import weather_inline_query  # погода: инлайн @бот город
 
 # Гномья дуэль: бой, выбор соперника, интерактивные ходы, статы, топ, удаление игрока
 from handlers.duel import (
@@ -107,10 +107,6 @@ def main():
 
     # Инлайн-погода: город набирается в поле ввода после @бота
     application.add_handler(InlineQueryHandler(weather_inline_query))
-    # Пасхалка после выбора города в инлайне (сообщение via bot)
-    application.add_handler(
-        MessageHandler(filters.TEXT & filters.VIA_BOT, weather_bonus_followup)
-    )
 
     # Дуэли: команда, вызовы, кнопки атак/блоков, статы и админ-удаление
     application.add_handler(CommandHandler("duel", duel_command))
