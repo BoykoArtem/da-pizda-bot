@@ -25,20 +25,20 @@ with open(_DWARFS_FACTS_PATH, encoding="utf-8") as _facts_file:
 # Хранилище активных дуэлей в памяти: state[chat_id] = { ... }
 ACTIVE_DUELS = {}
 
-# --- СЛОВАРИ ДЛЯ РАЗНООБРАЗИЯ ТЕКСТА (БЕЗ МАТА) ---
+# --- СЛОВАРИ ДЛЯ КНОПОК И ТЕКСТА ---
 TARGET_NAMES = {
     "head": "Голова 🧠",
     "body": "Торс 🛡️",
-    "crotch": "Пах 🍆"
+    "dick": "Хуй 🍆"
 }
 
 ATTACK_PHRASES = [
     "замахивается кухонным тесаком",
     "делает резкий выпад финкой",
     "целится заточенным кованым ножом",
-    "производит стремительный выпадок с ножом",
+    "производит стремительный выпад с ножом",
     "пытается нанести коварный тычок",
-    "выполняет молниеносную атаку кликом"
+    "выполняет молниеносную атаку клинком"
 ]
 
 HIT_PHRASES = [
@@ -140,7 +140,7 @@ def _get_strike_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("🎯 Голова", callback_data="duel_strike_head"),
             InlineKeyboardButton("🛡️ Торс", callback_data="duel_strike_body"),
-            InlineKeyboardButton("🍆 Пах", callback_data="duel_strike_crotch"),
+            InlineKeyboardButton("🍆 Хуй", callback_data="duel_strike_dick"),
         ]
     ]
     return InlineKeyboardMarkup(buttons)
@@ -155,7 +155,7 @@ async def _start_interactive_fight(
     defender_data: dict,
     original_msg_id: int = None
 ):
-    secret_block = random.choice(["head", "body", "crotch"])
+    secret_block = random.choice(["head", "body", "dick"])
     duel_state = {
         "attacker_tg": attacker_tg,
         "defender_tg": defender_tg,
@@ -197,7 +197,7 @@ async def _auto_move_timer(context: ContextTypes.DEFAULT_TYPE, chat_id: int, rou
     duel = ACTIVE_DUELS.get(chat_id)
 
     if duel and duel.get("round") == round_num:
-        random_choice = random.choice(["head", "body", "crotch"])
+        random_choice = random.choice(["head", "body", "dick"])
         att_title = format_user_title(duel["attacker_data"])
         
         try:
@@ -270,7 +270,7 @@ async def _process_strike(context: ContextTypes.DEFAULT_TYPE, chat_id: int, stri
         
         duel["attacker_tg"], duel["defender_tg"] = duel["defender_tg"], duel["attacker_tg"]
         duel["attacker_data"], duel["defender_data"] = duel["defender_data"], duel["attacker_data"]
-        duel["secret_block"] = random.choice(["head", "body", "crotch"])
+        duel["secret_block"] = random.choice(["head", "body", "dick"])
         duel["round"] += 1
 
         new_att_title = format_user_title(duel["attacker_data"])
@@ -313,7 +313,7 @@ async def _process_strike(context: ContextTypes.DEFAULT_TYPE, chat_id: int, stri
 
         duel["attacker_tg"], duel["defender_tg"] = duel["defender_tg"], duel["attacker_tg"]
         duel["attacker_data"], duel["defender_data"] = duel["defender_data"], duel["attacker_data"]
-        duel["secret_block"] = random.choice(["head", "body", "crotch"])
+        duel["secret_block"] = random.choice(["head", "body", "dick"])
         duel["round"] += 1
 
         new_att_title = format_user_title(duel["attacker_data"])
