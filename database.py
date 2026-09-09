@@ -3,7 +3,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 import pytz
-from config import DUEL_TIMEZONE
+from config import DUEL_TIMEZONE, DICK_STEAL_CHANCE, DICK_STEAL_CHANCE_PER_WIN
 
 DB_NAME = "bot_database.db"
 
@@ -42,6 +42,18 @@ def format_user_title(user_data: dict) -> str:
     if username:
         return username
     return user_data.get('display_name') or 'Гном'
+
+
+def get_dick_steal_percent(daily_wins: int) -> int:
+    """Шанс кражи хуя в процентах: база +1% за каждую победу за сегодня."""
+    wins = max(0, int(daily_wins or 0))
+    base_percent = int(round(DICK_STEAL_CHANCE * 100))
+    step_percent = int(round(DICK_STEAL_CHANCE_PER_WIN * 100))
+    return min(100, max(0, base_percent + wins * step_percent))
+
+
+def get_dick_steal_chance(daily_wins: int) -> float:
+    return get_dick_steal_percent(daily_wins) / 100.0
 
 
 def init_db():
@@ -109,6 +121,7 @@ def init_db():
                         dick_stolen_today INTEGER DEFAULT 0,
                         last_activity_date TEXT,
                         last_stolen_by TEXT DEFAULT NULL,
+                        daily_wins INTEGER DEFAULT 0,
                         PRIMARY KEY (user_id, chat_id)
                     )
                 """)
@@ -140,9 +153,17 @@ def init_db():
                     dick_stolen_today INTEGER DEFAULT 0,
                     last_activity_date TEXT,
                     last_stolen_by TEXT DEFAULT NULL,
+                    daily_wins INTEGER DEFAULT 0,
                     PRIMARY KEY (user_id, chat_id)
                 )
             """)
+
+        cursor.execute("PRAGMA table_info(duel_users)")
+        cols = [col[1] for col in cursor.fetchall()]
+        if "daily_wins" not in cols:
+            cursor.execute(
+                "ALTER TABLE duel_users ADD COLUMN daily_wins INTEGER DEFAULT 0"
+            )
 
         # Fix broken initial data where points=0 and losses=20 from prior seed bug
         cursor.execute("""
@@ -222,17 +243,19 @@ def _reset_user_if_new_day(cursor, row) -> dict | None:
     (
         user_id, chat_id, username, display_name, points, wins, losses,
         stolen_dicks_count, dick_stolen_count, dick_stolen_today,
-        last_activity_date, last_stolen_by
+        last_activity_date, last_stolen_by, daily_wins
     ) = row
 
     if last_activity_date != today_str:
         points = 20
         dick_stolen_today = 0
         last_stolen_by = None
+        daily_wins = 0
         last_activity_date = today_str
         cursor.execute("""
             UPDATE duel_users
-            SET points = 20, dick_stolen_today = 0, last_stolen_by = NULL, last_activity_date = ?
+            SET points = 20, dick_stolen_today = 0, last_stolen_by = NULL,
+                daily_wins = 0, last_activity_date = ?
             WHERE user_id = ? AND chat_id = ?
         """, (today_str, user_id, chat_id))
 
@@ -248,7 +271,8 @@ def _reset_user_if_new_day(cursor, row) -> dict | None:
         "dick_stolen_count": dick_stolen_count,
         "dick_stolen_today": bool(dick_stolen_today),
         "last_activity_date": last_activity_date,
-        "last_stolen_by": last_stolen_by
+        "last_stolen_by": last_stolen_by,
+        "daily_wins": daily_wins or 0,
     }
 
 
@@ -263,7 +287,7 @@ def get_or_create_duel_user(tg_user, chat_id: int) -> dict:
         cursor.execute("""
             SELECT user_id, chat_id, username, display_name, points, wins, losses,
                    stolen_dicks_count, dick_stolen_count, dick_stolen_today,
-                   last_activity_date, last_stolen_by
+                   last_activity_date, last_stolen_by, daily_wins
             FROM duel_users WHERE user_id = ? AND chat_id = ?
         """, (tg_user.id, chat_id))
         row = cursor.fetchone()
@@ -284,7 +308,7 @@ def get_or_create_duel_user(tg_user, chat_id: int) -> dict:
             cursor.execute("""
                 SELECT user_id, chat_id, username, display_name, points, wins, losses,
                        stolen_dicks_count, dick_stolen_count, dick_stolen_today,
-                       last_activity_date, last_stolen_by
+                       last_activity_date, last_stolen_by, daily_wins
                 FROM duel_users WHERE user_id = ? AND chat_id = ?
             """, (tg_user.id, chat_id))
             row = cursor.fetchone()
@@ -308,7 +332,7 @@ def get_duel_user_by_username(username: str, chat_id: int) -> dict | None:
         cursor.execute("""
             SELECT user_id, chat_id, username, display_name, points, wins, losses,
                    stolen_dicks_count, dick_stolen_count, dick_stolen_today,
-                   last_activity_date, last_stolen_by
+                   last_activity_date, last_stolen_by, daily_wins
             FROM duel_users 
             WHERE chat_id = ? AND (LOWER(username) = LOWER(?) OR LOWER(display_name) = LOWER(?))
         """, (chat_id, clean_search, clean_search))
@@ -347,7 +371,7 @@ def get_duel_user_by_username(username: str, chat_id: int) -> dict | None:
         cursor.execute("""
             SELECT user_id, chat_id, username, display_name, points, wins, losses,
                    stolen_dicks_count, dick_stolen_count, dick_stolen_today,
-                   last_activity_date, last_stolen_by
+                   last_activity_date, last_stolen_by, daily_wins
             FROM duel_users WHERE user_id = ? AND chat_id = ?
         """, (u_id, chat_id))
         new_row = cursor.fetchone()
@@ -379,7 +403,8 @@ def execute_duel_transaction(chat_id: int, winner_user: dict, loser_user: dict, 
         if is_dick_stolen:
             cursor.execute("""
                 UPDATE duel_users
-                SET points = ?, wins = wins + 1, stolen_dicks_count = stolen_dicks_count + 1
+                SET points = ?, wins = wins + 1, daily_wins = daily_wins + 1,
+                    stolen_dicks_count = stolen_dicks_count + 1
                 WHERE user_id = ? AND chat_id = ?
             """, (winner_points, winner_user["user_id"], chat_id))
 
@@ -392,7 +417,7 @@ def execute_duel_transaction(chat_id: int, winner_user: dict, loser_user: dict, 
         else:
             cursor.execute("""
                 UPDATE duel_users
-                SET points = ?, wins = wins + 1
+                SET points = ?, wins = wins + 1, daily_wins = daily_wins + 1
                 WHERE user_id = ? AND chat_id = ?
             """, (winner_points, winner_user["user_id"], chat_id))
 
