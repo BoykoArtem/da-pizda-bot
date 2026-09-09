@@ -100,8 +100,36 @@ def main():
     target_time = time(hour=GAME_HOUR, minute=GAME_MINUTE, second=0, tzinfo=tz)
 
     if application.job_queue:
-        application.job_queue.run_daily(daily_beauty_job, time=target_time)
+        logging.info(
+            "Регистрируем daily_beauty_job на %02d:%02d (%s)",
+            GAME_HOUR,
+            GAME_MINUTE,
+            DUEL_TIMEZONE,
+        )
+
+        job = application.job_queue.run_daily(
+            daily_beauty_job,
+            time=target_time,
+            name="daily_beauty_job",
+        )
+
+        logging.info(
+            "daily_beauty_job зарегистрирован: %s",
+            job.name,
+        )
+
         schedule_past_pizda_job(application.job_queue)
+
+        logging.info(
+            "Задачи JobQueue: %s",
+            [j.name for j in application.job_queue.jobs()],
+        )
+    else:
+        logging.error(
+            "JOB QUEUE НЕ ДОСТУПЕН! daily_beauty_job НЕ ЗАРЕГИСТРИРОВАН."
+        )
+
+    # Основные команды чата
 
     # Основные команды чата
     application.add_handler(CommandHandler("start", start_command))
