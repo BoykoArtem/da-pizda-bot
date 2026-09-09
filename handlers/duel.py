@@ -6,7 +6,6 @@ from pathlib import Path
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from config import (
-    DICK_STEAL_CHANCE,
     TOP_SORT_BY,
     ADMIN_IDS,
     WINNER_100_PTS_GIF,
@@ -19,6 +18,7 @@ from database import (
     execute_duel_transaction,
     get_duel_top,
     format_user_title,
+    get_dick_steal_chance,
 )
 
 AUTO_DELETE_DELAY = 60
@@ -96,6 +96,42 @@ SUICIDE_PHRASES = [
     "выполняет опасный кувырок и случайно подрезает сам себе жилы!",
     "переусердствовал с замахом и вырубает себя тяжелой рукоятью!",
 ]
+
+
+def _plural_rounds(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "раунд"
+    if 2 <= n % 10 <= 4 and (n % 100 < 10 or n % 100 >= 20):
+        return "раунда"
+    return "раундов"
+
+
+def get_round_flavor_text(rounds_count: int) -> str:
+    if rounds_count <= 1:
+        phrases = [
+            "⚡ <b>Срезал в касание!</b> Противник даже не успел понять, что произошло.",
+            "🚀 <b>Ваншот!</b> Одно мгновение — и дуэль окончена.",
+            "🎯 <b>Быстрый чек!</b> Вышел, зарезал, ушел.",
+        ]
+    elif rounds_count <= 4:
+        phrases = [
+            "⚔️ <b>Быстрая рубка!</b> Гномы едва успели запыхаться.",
+            "🔥 <b>Короткий, но яркий бой!</b> Искры летели во все стороны.",
+            "🍺 <b>Даже пиво не остыло!</b> Скоротечная схватка.",
+        ]
+    elif rounds_count <= 8:
+        phrases = [
+            "🛡️ <b>Плотное рубилово!</b> Достойный поединок двух мастеров.",
+            "💥 <b>Затяжная дуэль!</b> Борода против бороды, топор против топора.",
+            "🩸 <b>Потная заруба!</b> Оба гнома оставили немало сил на арене.",
+        ]
+    else:
+        phrases = [
+            "👵 <b>Дедовская осада!</b> Бой длился так долго, что у участников выросли новые бороды.",
+            "🐌 <b>Эпическая тягомотина!</b> Зрители успели уснуть и проснуться.",
+            "🪨 <b>Встретились два камня!</b> Это была дуэль на измор.",
+        ]
+    return random.choice(phrases)
 
 
 # ============================================================
@@ -989,11 +1025,11 @@ async def _finish_duel(
 ):
 
     duel = ACTIVE_DUELS.pop(chat_id, None)
+    rounds_count = duel.get("round", 1) if duel else 1
 
-    # Фиксированный шанс кражи из конфига
-    steal_chance = max(0.0, min(1.0, DICK_STEAL_CHANCE))
-    
-
+    # Шанс кражи не зависит от раундов: база +1% за каждую победу
+    # проигравшего за сегодня (накапливается, когда он побеждал).
+    steal_chance = get_dick_steal_chance(loser.get("daily_wins", 0))
     is_dick_stolen = random.random() < steal_chance
 
     try:
@@ -1031,7 +1067,9 @@ async def _finish_duel(
         f"<b>{win_title}</b>: +10 очков "
         f"({w_after}/100)\n"
         f"<b>{lose_title}</b>: -5 очков "
-        f"({l_after}/100)\n"
+        f"({l_after}/100)\n\n"
+        f"📊 Длительность: <b>{rounds_count}</b> {_plural_rounds(rounds_count)}\n"
+        f"{get_round_flavor_text(rounds_count)}\n"
     )
 
     if is_dick_stolen:
